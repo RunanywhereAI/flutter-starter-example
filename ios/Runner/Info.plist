@@ -49,5 +49,9 @@
 	<string>This app needs microphone access for speech recognition and voice commands.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>This app uses on-device speech recognition to transcribe your voice.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to capture images for on-device vision (VLM) analysis.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs photo library access to pick images for on-device vision (VLM) analysis.</string>
 </dict>
 </plist>

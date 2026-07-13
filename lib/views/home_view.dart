@@ -4,9 +4,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_theme.dart';
 import '../widgets/feature_card.dart';
 import 'chat_view.dart';
+import 'knowledge_view.dart';
 import 'speech_to_text_view.dart';
 import 'text_to_speech_view.dart';
 import 'tool_calling_view.dart';
+import 'vad_view.dart';
+import 'vision_view.dart';
 import 'voice_pipeline_view.dart';
 
 class HomeView extends StatelessWidget {
@@ -66,6 +69,16 @@ class HomeView extends StatelessWidget {
                       onTap: () => _navigateTo(context, const ChatView()),
                     ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.2),
                     FeatureCard(
+                      title: 'Vision',
+                      subtitle: 'Image Understanding',
+                      icon: Icons.center_focus_strong_rounded,
+                      gradientColors: const [
+                        AppColors.accentGreen,
+                        Color(0xFF059669),
+                      ],
+                      onTap: () => _navigateTo(context, const VisionView()),
+                    ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.2),
+                    FeatureCard(
                       title: 'Speech',
                       subtitle: 'Speech to Text',
                       icon: Icons.mic_rounded,
@@ -86,6 +99,16 @@ class HomeView extends StatelessWidget {
                       ],
                       onTap: () =>
                           _navigateTo(context, const TextToSpeechView()),
+                    ).animate().fadeIn(delay: 250.ms).slideY(begin: 0.2),
+                    FeatureCard(
+                      title: 'Activity',
+                      subtitle: 'Voice Detection',
+                      icon: Icons.graphic_eq_rounded,
+                      gradientColors: const [
+                        AppColors.accentOrange,
+                        Color(0xFFEA580C),
+                      ],
+                      onTap: () => _navigateTo(context, const VADView()),
                     ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.2),
                     FeatureCard(
                       title: 'Pipeline',
@@ -97,6 +120,16 @@ class HomeView extends StatelessWidget {
                       ],
                       onTap: () =>
                           _navigateTo(context, const VoicePipelineView()),
+                    ).animate().fadeIn(delay: 350.ms).slideY(begin: 0.2),
+                    FeatureCard(
+                      title: 'Knowledge',
+                      subtitle: 'RAG over Documents',
+                      icon: Icons.menu_book_rounded,
+                      gradientColors: const [
+                        AppColors.accentViolet,
+                        Color(0xFF6D28D9),
+                      ],
+                      onTap: () => _navigateTo(context, const KnowledgeView()),
                     ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.2),
                     FeatureCard(
                       title: 'Tools',
@@ -108,7 +141,7 @@ class HomeView extends StatelessWidget {
                       ],
                       onTap: () =>
                           _navigateTo(context, const ToolCallingView()),
-                    ).animate().fadeIn(delay: 500.ms).slideY(begin: 0.2),
+                    ).animate().fadeIn(delay: 450.ms).slideY(begin: 0.2),
                   ]),
                 ),
               ),
@@ -249,6 +282,13 @@ class HomeView extends StatelessWidget {
           const SizedBox(height: 12),
           _buildInfoRow(
             context,
+            icon: Icons.center_focus_strong_rounded,
+            title: 'VLM',
+            value: 'SmolVLM 500M',
+          ),
+          const SizedBox(height: 12),
+          _buildInfoRow(
+            context,
             icon: Icons.hearing_rounded,
             title: 'STT',
             value: 'Whisper Tiny',
@@ -258,7 +298,21 @@ class HomeView extends StatelessWidget {
             context,
             icon: Icons.record_voice_over_rounded,
             title: 'TTS',
-            value: 'Kokoro',
+            value: 'Piper Lessac',
+          ),
+          const SizedBox(height: 12),
+          _buildInfoRow(
+            context,
+            icon: Icons.graphic_eq_rounded,
+            title: 'VAD',
+            value: 'Silero',
+          ),
+          const SizedBox(height: 12),
+          _buildInfoRow(
+            context,
+            icon: Icons.menu_book_rounded,
+            title: 'Embeddings',
+            value: 'MiniLM L6 v2',
           ),
         ],
       ),
