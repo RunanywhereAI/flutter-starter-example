@@ -76,18 +76,18 @@ class _ToolCallingViewState extends State<ToolCallingView> {
   }
 
   void _registerDemoTools() {
-    RunAnywhereTools.clearTools();
+    RunAnywhere.tools.clearTools();
 
     // 1. Weather Tool
-    RunAnywhereTools.registerTool(
-      const ToolDefinition(
+    RunAnywhere.tools.registerTool(
+      ToolDefinition(
         name: 'get_weather',
         description:
             'Gets the current weather for a given location using Open-Meteo API',
         parameters: [
           ToolParameter(
             name: 'location',
-            type: ToolParameterType.string,
+            type: ToolParameterType.TOOL_PARAMETER_TYPE_STRING,
             description:
                 "City name (e.g., 'San Francisco', 'London', 'Tokyo')",
           ),
@@ -98,8 +98,8 @@ class _ToolCallingViewState extends State<ToolCallingView> {
     );
 
     // 2. Time Tool
-    RunAnywhereTools.registerTool(
-      const ToolDefinition(
+    RunAnywhere.tools.registerTool(
+      ToolDefinition(
         name: 'get_current_time',
         description: 'Gets the current date, time, and timezone information',
         parameters: [],
@@ -109,15 +109,15 @@ class _ToolCallingViewState extends State<ToolCallingView> {
     );
 
     // 3. Calculator Tool
-    RunAnywhereTools.registerTool(
-      const ToolDefinition(
+    RunAnywhere.tools.registerTool(
+      ToolDefinition(
         name: 'calculate',
         description:
             'Performs math calculations. Supports +, -, *, /, and parentheses',
         parameters: [
           ToolParameter(
             name: 'expression',
-            type: ToolParameterType.string,
+            type: ToolParameterType.TOOL_PARAMETER_TYPE_STRING,
             description:
                 "Math expression (e.g., '2 + 2 * 3', '(10 + 5) / 3')",
           ),
@@ -134,14 +134,10 @@ class _ToolCallingViewState extends State<ToolCallingView> {
   // Tool Executors
   // ===========================================================================
 
-  Future<Map<String, ToolValue>> _fetchWeather(
-    Map<String, ToolValue> args,
-  ) async {
-    final rawLocation = args['location']?.stringValue;
+  Future<Map<String, dynamic>> _fetchWeather(Map<String, dynamic> args) async {
+    final rawLocation = args['location'] as String?;
     if (rawLocation == null || rawLocation.isEmpty) {
-      return {
-        'error': const StringToolValue('Missing required argument: location'),
-      };
+      return {'error': 'Missing required argument: location'};
     }
 
     final location = _cleanLocationString(rawLocation);
@@ -162,8 +158,8 @@ class _ToolCallingViewState extends State<ToolCallingView> {
       final results = geocodeData['results'] as List?;
       if (results == null || results.isEmpty) {
         return {
-          'error': StringToolValue('Could not find location: $location'),
-          'location': StringToolValue(location),
+          'error': 'Could not find location: $location',
+          'location': location,
         };
       }
 
@@ -193,17 +189,14 @@ class _ToolCallingViewState extends State<ToolCallingView> {
       final weatherCode = current['weather_code'] as int? ?? 0;
 
       return {
-        'location': StringToolValue(cityName),
-        'temperature_fahrenheit': NumberToolValue(temp.toDouble()),
-        'humidity_percent': NumberToolValue(humidity.toDouble()),
-        'wind_speed_mph': NumberToolValue(windSpeed.toDouble()),
-        'condition': StringToolValue(_weatherCodeToCondition(weatherCode)),
+        'location': cityName,
+        'temperature_fahrenheit': temp.toDouble(),
+        'humidity_percent': humidity.toDouble(),
+        'wind_speed_mph': windSpeed.toDouble(),
+        'condition': _weatherCodeToCondition(weatherCode),
       };
     } catch (e) {
-      return {
-        'error': StringToolValue('Weather fetch failed: $e'),
-        'location': StringToolValue(location),
-      };
+      return {'error': 'Weather fetch failed: $e', 'location': location};
     }
   }
 
@@ -240,43 +233,30 @@ class _ToolCallingViewState extends State<ToolCallingView> {
         _ => 'Unknown',
       };
 
-  Future<Map<String, ToolValue>> _getCurrentTime(
-    Map<String, ToolValue> args,
+  Future<Map<String, dynamic>> _getCurrentTime(
+    Map<String, dynamic> args,
   ) async {
     final now = DateTime.now();
     return {
-      'date': StringToolValue(
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-      ),
-      'time': StringToolValue(
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}',
-      ),
-      'timezone': StringToolValue(now.timeZoneName),
+      'date':
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+      'time':
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}',
+      'timezone': now.timeZoneName,
     };
   }
 
-  Future<Map<String, ToolValue>> _calculate(
-    Map<String, ToolValue> args,
-  ) async {
-    final expression = args['expression']?.stringValue;
+  Future<Map<String, dynamic>> _calculate(Map<String, dynamic> args) async {
+    final expression = args['expression'] as String?;
     if (expression == null || expression.isEmpty) {
-      return {
-        'error':
-            const StringToolValue('Missing required argument: expression'),
-      };
+      return {'error': 'Missing required argument: expression'};
     }
 
     try {
       final result = _evaluateExpression(expression);
-      return {
-        'expression': StringToolValue(expression),
-        'result': NumberToolValue(result),
-      };
+      return {'expression': expression, 'result': result};
     } catch (e) {
-      return {
-        'error': StringToolValue('Calculation failed: $e'),
-        'expression': StringToolValue(expression),
-      };
+      return {'error': 'Calculation failed: $e', 'expression': expression};
     }
   }
 
@@ -365,17 +345,19 @@ class _ToolCallingViewState extends State<ToolCallingView> {
     _scrollToBottom();
 
     try {
-      final result = await RunAnywhereTools.generateWithTools(
+      final result = await RunAnywhere.tools.generateWithTools(
         text,
-        options: const ToolCallingOptions(
+        options: ToolCallingOptions(
           maxToolCalls: 3,
           autoExecute: true,
           temperature: 0.7,
           maxTokens: 512,
+          format: ToolCallFormatName.TOOL_CALL_FORMAT_NAME_JSON,
         ),
       );
 
-      // Convert tool calls to UI-friendly format
+      // Convert tool calls to UI-friendly format. `argumentsJson`/`resultJson`
+      // are already JSON strings, so they can be displayed directly.
       final toolCallInfos = <ToolCallInfo>[];
       for (var i = 0; i < result.toolCalls.length; i++) {
         final call = result.toolCalls[i];
@@ -383,13 +365,14 @@ class _ToolCallingViewState extends State<ToolCallingView> {
             i < result.toolResults.length ? result.toolResults[i] : null;
 
         toolCallInfos.add(ToolCallInfo(
-          toolName: call.toolName,
-          arguments: call.arguments.entries
-              .map((e) => '${e.key}: ${_formatToolValue(e.value)}')
-              .join(', '),
-          result:
-              toolResult?.result != null ? _formatToolResult(toolResult!.result!) : null,
-          error: toolResult?.error,
+          toolName: call.name,
+          arguments: call.argumentsJson,
+          result: (toolResult != null && toolResult.resultJson.isNotEmpty)
+              ? toolResult.resultJson
+              : null,
+          error: (toolResult != null && toolResult.error.isNotEmpty)
+              ? toolResult.error
+              : null,
           success: toolResult?.success ?? false,
         ));
       }
@@ -418,21 +401,6 @@ class _ToolCallingViewState extends State<ToolCallingView> {
         });
       }
     }
-  }
-
-  String _formatToolValue(ToolValue value) => switch (value) {
-        StringToolValue(value: var v) => '"$v"',
-        NumberToolValue(value: var v) => v.toString(),
-        BoolToolValue(value: var v) => v.toString(),
-        NullToolValue() => 'null',
-        ArrayToolValue() => '[...]',
-        ObjectToolValue() => '{...}',
-      };
-
-  String _formatToolResult(Map<String, ToolValue> result) {
-    return result.entries
-        .map((e) => '${e.key}: ${_formatToolValue(e.value)}')
-        .join('\n');
   }
 
   void _clearChat() => setState(() => _messages.clear());
