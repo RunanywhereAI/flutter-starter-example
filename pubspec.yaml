@@ -26,7 +26,10 @@ dependencies:
   
   # State management
   provider: ^6.1.2
-  
+
+  # Vision (VLM) — gallery + camera image input
+  image_picker: ^1.1.2
+
   # Utilities
   intl: ^0.19.0
   http: ^1.2.0

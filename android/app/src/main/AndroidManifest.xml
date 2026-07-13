@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- Vision (VLM): capture an image via the device camera (image_picker) -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     
     <application
         android:label="RunAnywhere Starter"
