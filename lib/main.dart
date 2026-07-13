@@ -15,11 +15,11 @@ void main() async {
   await RunAnywhere.initialize();
 
   // Register backends
-  await LlamaCpp.register();
+  LlamaCpp.register();
   await Onnx.register();
 
   // Register models
-  ModelService.registerDefaultModels();
+  await ModelService.registerDefaultModels();
 
   runApp(
     ChangeNotifierProvider(

@@ -1,12 +1,9 @@
-import 'dart:io';
-import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:runanywhere/runanywhere.dart';
-import 'package:audioplayers/audioplayers.dart';
 
 import '../services/model_service.dart';
 import '../theme/app_theme.dart';
@@ -21,11 +18,11 @@ class TextToSpeechView extends StatefulWidget {
 
 class _TextToSpeechViewState extends State<TextToSpeechView> {
   final TextEditingController _controller = TextEditingController();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  StreamSubscription<bool>? _playbackSubscription;
   bool _isSynthesizing = false;
   bool _isPlaying = false;
   double _speechRate = 1.0;
-  String? _lastAudioFilePath;
+  String? _lastSynthesizedText;
 
   // Sample texts for quick testing
   final List<String> _sampleTexts = [
@@ -38,17 +35,14 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
   @override
   void initState() {
     super.initState();
-    _audioPlayer.onPlayerStateChanged.listen((state) {
+    // The SDK owns synthesis + playback for speak(); just mirror its
+    // playing-state stream into local UI state.
+    _playbackSubscription = RunAnywhere.tts.playbackStateStream.listen((
+      isPlaying,
+    ) {
       if (mounted) {
         setState(() {
-          _isPlaying = state == PlayerState.playing;
-        });
-      }
-    });
-    _audioPlayer.onPlayerComplete.listen((_) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = false;
+          _isPlaying = isPlaying;
         });
       }
     });
@@ -57,7 +51,7 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
   @override
   void dispose() {
     _controller.dispose();
-    _audioPlayer.dispose();
+    _playbackSubscription?.cancel();
     super.dispose();
   }
 
@@ -268,7 +262,7 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Play/Replay button
-              if (_lastAudioFilePath != null && !_isSynthesizing)
+              if (_lastSynthesizedText != null && !_isSynthesizing)
                 IconButton(
                   icon: Icon(
                     _isPlaying ? Icons.stop_rounded : Icons.replay_rounded,
@@ -459,28 +453,17 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
     });
 
     try {
-      final result = await RunAnywhere.synthesize(
+      // The SDK synthesizes AND plays the audio through the device
+      // speakers — no manual WAV encoding or audio-player wiring needed.
+      await RunAnywhere.tts.speak(
         text,
-        rate: _speechRate,
+        TTSOptions(speakingRate: _speechRate),
       );
-
-      // Convert Float32 samples to WAV format for playback
-      final wavData = _createWavFromFloat32(result.samples, result.sampleRate);
-
-      // Save to a temp file with .wav extension (required for iOS AVPlayer)
-      final tempDir = await getTemporaryDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempFile = File('${tempDir.path}/tts_output_$timestamp.wav');
-      await tempFile.writeAsBytes(wavData);
-      _lastAudioFilePath = tempFile.path;
-
-      // Play the audio using file source (iOS requires proper file extension)
-      await _audioPlayer.play(DeviceFileSource(_lastAudioFilePath!));
+      _lastSynthesizedText = text;
 
       if (mounted) {
         setState(() {
           _isSynthesizing = false;
-          _isPlaying = true;
         });
       }
     } catch (e) {
@@ -496,72 +479,20 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
   }
 
   Future<void> _replayAudio() async {
-    if (_lastAudioFilePath == null) return;
-    await _audioPlayer.play(DeviceFileSource(_lastAudioFilePath!));
-    setState(() {
-      _isPlaying = true;
-    });
+    final text = _lastSynthesizedText;
+    if (text == null) return;
+    try {
+      await RunAnywhere.tts.speak(text, TTSOptions(speakingRate: _speechRate));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _stopPlayback() async {
-    await _audioPlayer.stop();
-    setState(() {
-      _isPlaying = false;
-    });
-  }
-
-  /// Convert Float32 PCM samples to WAV format
-  Uint8List _createWavFromFloat32(Float32List samples, int sampleRate) {
-    final numChannels = 1;
-    final bitsPerSample = 16;
-    final byteRate = sampleRate * numChannels * (bitsPerSample ~/ 8);
-    final blockAlign = numChannels * (bitsPerSample ~/ 8);
-    final dataSize = samples.length * 2; // 16-bit samples
-    final fileSize = 36 + dataSize;
-
-    final buffer = BytesBuilder();
-
-    // RIFF header
-    buffer.add('RIFF'.codeUnits);
-    buffer.add(_int32ToBytes(fileSize));
-    buffer.add('WAVE'.codeUnits);
-
-    // fmt chunk
-    buffer.add('fmt '.codeUnits);
-    buffer.add(_int32ToBytes(16)); // Chunk size
-    buffer.add(_int16ToBytes(1)); // Audio format (PCM)
-    buffer.add(_int16ToBytes(numChannels));
-    buffer.add(_int32ToBytes(sampleRate));
-    buffer.add(_int32ToBytes(byteRate));
-    buffer.add(_int16ToBytes(blockAlign));
-    buffer.add(_int16ToBytes(bitsPerSample));
-
-    // data chunk
-    buffer.add('data'.codeUnits);
-    buffer.add(_int32ToBytes(dataSize));
-
-    // Convert Float32 samples to Int16
-    for (final sample in samples) {
-      final int16Sample = (sample * 32767).clamp(-32768, 32767).toInt();
-      buffer.add(_int16ToBytes(int16Sample));
-    }
-
-    return buffer.toBytes();
-  }
-
-  List<int> _int32ToBytes(int value) {
-    return [
-      value & 0xFF,
-      (value >> 8) & 0xFF,
-      (value >> 16) & 0xFF,
-      (value >> 24) & 0xFF,
-    ];
-  }
-
-  List<int> _int16ToBytes(int value) {
-    return [
-      value & 0xFF,
-      (value >> 8) & 0xFF,
-    ];
+    await RunAnywhere.tts.stopSpeaking();
   }
 }

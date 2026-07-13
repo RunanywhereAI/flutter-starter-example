@@ -417,8 +417,17 @@ class _SpeechToTextViewState extends State<SpeechToTextView> {
     try {
       final audioData = Uint8List.fromList(_audioBuffer);
       if (audioData.length > 1600) {
-        // At least 0.1s of audio at 16kHz
-        final text = await RunAnywhere.transcribe(audioData);
+        // At least 0.1s of audio at 16kHz. The recorder streams raw
+        // PCM16 mono samples (no WAV container), so tell the SDK the exact
+        // encoding rather than relying on the WAV-container default.
+        final output = await RunAnywhere.stt.transcribe(
+          audioData,
+          STTOptions(
+            sampleRate: 16000,
+            audioFormat: AudioFormat.AUDIO_FORMAT_PCM_S16LE,
+          ),
+        );
+        final text = output.text;
 
         if (mounted) {
           setState(() {

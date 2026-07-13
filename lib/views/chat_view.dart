@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -22,14 +20,16 @@ class _ChatViewState extends State<ChatView> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _isGenerating = false;
+  bool _cancelRequested = false;
   String _currentResponse = '';
-  LLMStreamingResult? _streamingResult;
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
-    _streamingResult?.cancel();
+    if (_isGenerating) {
+      RunAnywhere.llm.cancelGeneration();
+    }
     super.dispose();
   }
 
@@ -271,36 +271,41 @@ class _ChatViewState extends State<ChatView> {
     _scrollToBottom();
 
     try {
-      _streamingResult = await RunAnywhere.generateStream(
+      final events = RunAnywhere.llm.generateStream(
         text,
-        options: const LLMGenerationOptions(
+        LLMGenerationOptions(
           maxTokens: 256,
           temperature: 0.8,
         ),
       );
 
-      await for (final token in _streamingResult!.stream) {
-        if (!mounted) return;
-        setState(() {
-          _currentResponse += token;
-        });
-        _scrollToBottom();
-      }
-
-      // Wait for final result to get metrics
-      final result = await _streamingResult!.result;
+      // Consumes the token stream and aggregates it into one final result
+      // (text + metrics), while `onToken` drives the live partial-response UI.
+      final result = await RunAnywhere.aggregateStream(
+        prompt: text,
+        events: events,
+        onToken: (aggregated) async {
+          if (!mounted) return;
+          setState(() {
+            _currentResponse = aggregated;
+          });
+          _scrollToBottom();
+        },
+      );
 
       if (mounted) {
         setState(() {
           _messages.add(ChatMessage(
-            text: _currentResponse,
+            text: result.text,
             isUser: false,
             timestamp: DateTime.now(),
             tokensPerSecond: result.tokensPerSecond,
-            totalTokens: result.tokensUsed,
+            totalTokens: result.totalTokens,
+            wasCancelled: _cancelRequested,
           ));
           _isGenerating = false;
           _currentResponse = '';
+          _cancelRequested = false;
         });
       }
     } catch (e) {
@@ -314,25 +319,18 @@ class _ChatViewState extends State<ChatView> {
           ));
           _isGenerating = false;
           _currentResponse = '';
+          _cancelRequested = false;
         });
       }
     }
   }
 
   void _stopGeneration() {
-    _streamingResult?.cancel();
-    setState(() {
-      if (_currentResponse.isNotEmpty) {
-        _messages.add(ChatMessage(
-          text: _currentResponse,
-          isUser: false,
-          timestamp: DateTime.now(),
-          wasCancelled: true,
-        ));
-      }
-      _isGenerating = false;
-      _currentResponse = '';
-    });
+    // The pending _sendMessage() call owns appending the final bubble once
+    // the (now-cancelled) stream actually terminates — this just requests
+    // cancellation and flags it, avoiding a duplicate bubble race.
+    _cancelRequested = true;
+    RunAnywhere.llm.cancelGeneration();
   }
 
   void _clearChat() {
