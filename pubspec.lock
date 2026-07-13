@@ -435,11 +435,27 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.20.9"
+  runanywhere_mlx:
+    dependency: "direct main"
+    description:
+      name: runanywhere_mlx
+      sha256: e3230618cef84dc723eea8d44eaad0e199c31916349d107b81cddc974e6f67c0
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.20.9"
   runanywhere_onnx:
     dependency: "direct main"
     description:
       name: runanywhere_onnx
       sha256: "69c1a8493627a5ff8f125298aca6ee724ee698118e5b1596a5898a2bf80724b4"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.20.9"
+  runanywhere_qhexrt:
+    dependency: "direct main"
+    description:
+      name: runanywhere_qhexrt
+      sha256: c51824a9296c04597e5853e408571393fd28a7fe409054b5a0bf340318e8d9cf
       url: "https://pub.dev"
     source: hosted
     version: "0.20.9"

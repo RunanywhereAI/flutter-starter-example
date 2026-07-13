@@ -16,6 +16,8 @@ dependencies:
   runanywhere: ^0.20.9
   runanywhere_llamacpp: ^0.20.9
   runanywhere_onnx: ^0.20.9
+  runanywhere_mlx: ^0.20.9
+  runanywhere_qhexrt: ^0.20.9
 
   # UI and Icons
   cupertino_icons: ^1.0.6
