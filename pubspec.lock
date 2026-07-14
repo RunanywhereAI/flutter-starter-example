@@ -543,34 +543,34 @@ packages:
     dependency: "direct main"
     description:
       name: runanywhere
-      sha256: "2cc1d89578d5b1c4e015f2f6cdff02083e87dbe325ca3ec0976e4fc1d1c1b99c"
+      sha256: f1498b083d2b9a531a63dcd24e628c20917cd9421d24820cae131a19b0ccd9f9
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.9"
+    version: "0.20.10"
   runanywhere_llamacpp:
     dependency: "direct main"
     description:
       name: runanywhere_llamacpp
-      sha256: "5d5e255193a286fa0c1166c036161036a058adbad84c19d87cedccca08eb64a9"
+      sha256: "16013724b89aa2e60eb0d8bfbff51c83b036d8aa3f84de6f3e11cb3c8819d4b7"
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.9"
+    version: "0.20.10"
   runanywhere_mlx:
     dependency: "direct main"
     description:
       name: runanywhere_mlx
-      sha256: e3230618cef84dc723eea8d44eaad0e199c31916349d107b81cddc974e6f67c0
+      sha256: "33d472f2522361d76630c4c664b5d701d25df3350401fc5ef5122628923ac140"
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.9"
+    version: "0.20.10"
   runanywhere_onnx:
     dependency: "direct main"
     description:
       name: runanywhere_onnx
-      sha256: "69c1a8493627a5ff8f125298aca6ee724ee698118e5b1596a5898a2bf80724b4"
+      sha256: c31a8a5b3397903fb0a62a5ba12779420f12de4b39516589896511ffde0507cd
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.9"
+    version: "0.20.10"
   runanywhere_qhexrt:
     dependency: "direct main"
     description:
