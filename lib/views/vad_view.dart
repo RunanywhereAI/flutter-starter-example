@@ -12,9 +12,9 @@ import '../widgets/audio_visualizer.dart';
 import '../widgets/model_loader_widget.dart';
 
 /// Voice Activity Detection view — streams microphone audio through the loaded
-/// Silero VAD model and shows live speech / confidence / energy readouts.
+/// Silero VAD model and shows live speech / confidence readouts.
 /// Uses the SDK's `AudioCaptureManager` for mic capture and
-/// `RunAnywhere.vad.streamVAD` for per-chunk detection.
+/// `RunAnywhere.vad.openStream` for per-frame detection.
 class VADView extends StatefulWidget {
   const VADView({super.key});
 
@@ -24,13 +24,15 @@ class VADView extends StatefulWidget {
 
 class _VADViewState extends State<VADView> {
   final AudioCaptureManager _capture = AudioCaptureManager();
-  StreamSubscription<VADResult>? _vadSubscription;
+  VadStream? _vadStream;
+  StreamSubscription<VadEvent>? _vadSubscription;
+  StreamSubscription<Uint8List>? _chunkSubscription;
   StreamSubscription<double>? _levelSubscription;
 
   bool _isListening = false;
   bool _isSpeech = false;
   double _confidence = 0;
-  double _energy = 0;
+  int _speechFrames = 0;
   int _frameCount = 0;
   double _audioLevel = 0;
   String? _error;
@@ -38,7 +40,9 @@ class _VADViewState extends State<VADView> {
   @override
   void dispose() {
     unawaited(_vadSubscription?.cancel());
+    unawaited(_chunkSubscription?.cancel());
     unawaited(_levelSubscription?.cancel());
+    unawaited(_vadStream?.close());
     unawaited(_capture.dispose());
     super.dispose();
   }
@@ -163,7 +167,7 @@ class _VADViewState extends State<VADView> {
         _metricCard('Confidence', _confidence.toStringAsFixed(2),
             Icons.percent_rounded, AppColors.accentCyan),
         const SizedBox(width: 12),
-        _metricCard('Energy', _energy.toStringAsFixed(3),
+        _metricCard('Speech', '$_speechFrames',
             Icons.bolt_rounded, AppColors.accentViolet),
         const SizedBox(width: 12),
         _metricCard('Frames', '$_frameCount',
@@ -229,7 +233,7 @@ class _VADViewState extends State<VADView> {
   }
 
   Future<void> _startListening() async {
-    if (!RunAnywhere.vad.isModelLoaded) {
+    if (!context.read<ModelService>().isVADLoaded) {
       setState(() => _error = 'Load a VAD model first');
       return;
     }
@@ -249,50 +253,63 @@ class _VADViewState extends State<VADView> {
       setState(() => _audioLevel = level);
     });
 
-    // One VADResult per mic chunk — the SDK owns model framing.
-    _vadSubscription = RunAnywhere.vad.streamVAD(chunks).listen(
-      (result) {
-        if (!mounted) return;
-        if (result.errorMessage.isNotEmpty) {
+    // The format is declared once at open time; every frame pushed afterward
+    // carries raw PCM in it. The SDK owns model framing behind the stream.
+    final stream = RunAnywhere.vad.openStream(
+      const AudioFormatSpec(
+        encoding: AudioEncoding.pcm16,
+        sampleRate: 16000,
+      ),
+    );
+    _vadStream = stream;
+
+    _chunkSubscription = chunks.listen(
+      (chunk) => stream.pushFrame(
+        AudioFrame(samples: chunk, sampleCount: chunk.lengthInBytes ~/ 2),
+      ),
+      onDone: stream.finish,
+    );
+
+    _vadSubscription = stream.events.listen((event) {
+      if (!mounted) return;
+      switch (event) {
+        case VadActivity(:final isSpeech, :final probability):
           setState(() {
-            _error = result.errorMessage;
+            _isSpeech = isSpeech;
+            _confidence = probability;
+            _frameCount += 1;
+            if (isSpeech) _speechFrames += 1;
+          });
+        case VadFailed(:final error):
+          setState(() {
+            _error = 'VAD failed: ${error.message}';
             _isListening = false;
           });
           unawaited(_capture.cancel());
-          return;
-        }
-        setState(() {
-          _isSpeech = result.isSpeech;
-          _confidence = result.confidence;
-          _energy = result.energy;
-          _frameCount += 1;
-        });
-      },
-      onError: (Object e) {
-        if (!mounted) return;
-        setState(() {
-          _error = 'VAD failed: $e';
-          _isListening = false;
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() => _isListening = false);
-      },
-    );
+        case VadCompleted():
+          setState(() => _isListening = false);
+        default:
+          break;
+      }
+    });
 
     setState(() {
       _isListening = true;
       _error = null;
       _frameCount = 0;
+      _speechFrames = 0;
     });
   }
 
   Future<void> _stopListening() async {
+    await _chunkSubscription?.cancel();
+    _chunkSubscription = null;
     await _vadSubscription?.cancel();
     _vadSubscription = null;
     await _levelSubscription?.cancel();
     _levelSubscription = null;
+    await _vadStream?.close();
+    _vadStream = null;
     await _capture.stopRecording();
 
     if (!mounted) return;

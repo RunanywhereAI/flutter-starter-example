@@ -11,8 +11,8 @@ import '../widgets/model_loader_widget.dart';
 
 /// Knowledge (RAG) view — paste a document, ingest it into the on-device RAG
 /// pipeline (embeddings + retrieval), then ask grounded questions answered by
-/// the LLM. Exercises `RunAnywhere.rag.*` end-to-end:
-/// `ragCreatePipelineForModels` → `ragIngest` → `query` → `destroyPipeline`.
+/// the LLM. Exercises `RunAnywhere.rag` end-to-end:
+/// `open` → `ingest` → `query` → `close`.
 class KnowledgeView extends StatefulWidget {
   const KnowledgeView({super.key});
 
@@ -38,12 +38,16 @@ class _KnowledgeViewState extends State<KnowledgeView> {
   String? _error;
   final List<_QAPair> _messages = [];
 
+  /// The open corpus. The SDK allows one live RAG session at a time, so this
+  /// is closed before another is opened.
+  RagSession? _session;
+
   @override
   void dispose() {
     _documentController.dispose();
     _questionController.dispose();
     // Release the native RAG pipeline if the screen is popped mid-session.
-    unawaited(RunAnywhere.rag.destroyPipeline());
+    unawaited(_session?.close());
     super.dispose();
   }
 
@@ -354,25 +358,24 @@ class _KnowledgeViewState extends State<KnowledgeView> {
       return;
     }
 
-    final modelService = context.read<ModelService>();
     setState(() {
       _isIngesting = true;
       _error = null;
     });
 
     try {
-      final embedding =
-          await modelService.modelInfo(ModelService.embeddingModelId);
-      final llm = await modelService.modelInfo(ModelService.llmModelId);
-      if (embedding == null || llm == null) {
-        throw StateError('Embedding or LLM model not found in registry');
-      }
+      // Only one RAG session may be live, so retire any previous corpus first.
+      await _session?.close();
+      _session = null;
 
-      await RunAnywhere.rag.ragCreatePipelineForModels(
-        embeddingModel: embedding,
-        llmModel: llm,
+      // `open` loads the embedding + language models by id, downloading them
+      // if needed — the app just names them.
+      final session = await RunAnywhere.rag.open(
+        embeddingModel: const ModelRef(ModelService.embeddingModelId),
+        llmModel: const ModelRef(ModelService.llmModelId),
       );
-      await RunAnywhere.rag.ragIngest(RAGDocument(text: text));
+      _session = session;
+      await session.ingest(RagDocument(text));
 
       if (!mounted) return;
       setState(() {
@@ -383,7 +386,8 @@ class _KnowledgeViewState extends State<KnowledgeView> {
       });
     } catch (e) {
       // Tear down any partially-created pipeline.
-      await RunAnywhere.rag.destroyPipeline();
+      await _session?.close();
+      _session = null;
       if (!mounted) return;
       setState(() {
         _error = 'Failed to ingest: $e';
@@ -404,7 +408,11 @@ class _KnowledgeViewState extends State<KnowledgeView> {
     });
 
     try {
-      final result = await RunAnywhere.rag.query(question);
+      final session = _session;
+      if (session == null) {
+        throw StateError('No document has been ingested yet');
+      }
+      final result = await session.query(question);
       if (!mounted) return;
       setState(() {
         pair.answer = result.answer;
@@ -421,7 +429,8 @@ class _KnowledgeViewState extends State<KnowledgeView> {
   }
 
   Future<void> _clearDocument() async {
-    await RunAnywhere.rag.destroyPipeline();
+    await _session?.close();
+    _session = null;
     if (!mounted) return;
     setState(() {
       _documentLoaded = false;

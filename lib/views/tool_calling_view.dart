@@ -75,53 +75,61 @@ class _ToolCallingViewState extends State<ToolCallingView> {
     super.dispose();
   }
 
+  /// Build the JSON Schema for a tool's arguments.
+  ///
+  /// `ToolDefinition.parameters` is a raw JSON Schema string now — the typed
+  /// `ToolParameter`/`ToolParameterType` message tree was removed — so each
+  /// argument is described as a schema property.
+  static String _argumentSchema(Map<String, String> descriptions) =>
+      jsonEncode({
+        'type': 'object',
+        'properties': {
+          for (final entry in descriptions.entries)
+            entry.key: {'type': 'string', 'description': entry.value},
+        },
+        'required': descriptions.keys.toList(),
+      });
+
   void _registerDemoTools() {
-    RunAnywhere.tools.clearTools();
+    final tools = RunAnywhere.llm.tools;
+    for (final registered in tools.list()) {
+      tools.unregister(registered.name);
+    }
 
     // 1. Weather Tool
-    RunAnywhere.tools.registerTool(
+    tools.register(
       ToolDefinition(
         name: 'get_weather',
         description:
             'Gets the current weather for a given location using Open-Meteo API',
-        parameters: [
-          ToolParameter(
-            name: 'location',
-            type: ToolParameterType.TOOL_PARAMETER_TYPE_STRING,
-            description:
-                "City name (e.g., 'San Francisco', 'London', 'Tokyo')",
-          ),
-        ],
+        parameters: _argumentSchema({
+          'location': "City name (e.g., 'San Francisco', 'London', 'Tokyo')",
+        }),
         category: 'Utility',
       ),
       _fetchWeather,
     );
 
     // 2. Time Tool
-    RunAnywhere.tools.registerTool(
+    tools.register(
       ToolDefinition(
         name: 'get_current_time',
         description: 'Gets the current date, time, and timezone information',
-        parameters: [],
+        parameters: _argumentSchema(const {}),
         category: 'Utility',
       ),
       _getCurrentTime,
     );
 
     // 3. Calculator Tool
-    RunAnywhere.tools.registerTool(
+    tools.register(
       ToolDefinition(
         name: 'calculate',
         description:
             'Performs math calculations. Supports +, -, *, /, and parentheses',
-        parameters: [
-          ToolParameter(
-            name: 'expression',
-            type: ToolParameterType.TOOL_PARAMETER_TYPE_STRING,
-            description:
-                "Math expression (e.g., '2 + 2 * 3', '(10 + 5) / 3')",
-          ),
-        ],
+        parameters: _argumentSchema({
+          'expression': "Math expression (e.g., '2 + 2 * 3', '(10 + 5) / 3')",
+        }),
         category: 'Utility',
       ),
       _calculate,
@@ -345,14 +353,16 @@ class _ToolCallingViewState extends State<ToolCallingView> {
     _scrollToBottom();
 
     try {
-      final result = await RunAnywhere.tools.generateWithTools(
+      // Registered tools are offered automatically; the SDK runs the
+      // tool-execution loop and hands back the calls it made with their
+      // results alongside the final answer.
+      final result = await RunAnywhere.llm.generate(
         text,
-        options: ToolCallingOptions(
+        options: LlmOptions(
           maxToolCalls: 3,
           autoExecute: true,
           temperature: 0.7,
-          maxTokens: 512,
-          format: ToolCallFormatName.TOOL_CALL_FORMAT_NAME_JSON,
+          maxOutputTokens: 512,
         ),
       );
 
@@ -373,7 +383,7 @@ class _ToolCallingViewState extends State<ToolCallingView> {
           error: (toolResult != null && toolResult.error.isNotEmpty)
               ? toolResult.error
               : null,
-          success: toolResult?.success ?? false,
+          success: toolResult != null && !toolResult.isError,
         ));
       }
 
