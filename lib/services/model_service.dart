@@ -5,9 +5,12 @@ import 'package:runanywhere/runanywhere.dart';
 class ModelService extends ChangeNotifier {
   // Model IDs - curated one-per-modality set mirroring the monorepo reference
   // example (examples/flutter/RunAnywhereAI ModelCatalogBootstrap). Each id /
-  // url / framework / category matches what the reference registers.
+  // url / framework / category matches what the reference registers. Vision
+  // carries a second, larger row (families ordered small -> large, as in the
+  // reference) so the Vision view can be pointed at a higher-quality VLM.
   static const String llmModelId = 'smollm2-360m-instruct-q8_0';
   static const String vlmModelId = 'smolvlm-500m-instruct-q8_0';
+  static const String vlmLfm25ModelId = 'lfm2.5-vl-3b-q4_k_m';
   static const String sttModelId = 'sherpa-onnx-whisper-tiny.en';
   static const String ttsModelId = 'vits-piper-en_US-lessac-medium';
   static const String vadModelId = 'silero-vad';
@@ -100,6 +103,52 @@ class ModelService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('Failed to register VLM model: $e');
+    }
+
+    // VLM Model - LFM2.5-VL 3B (LiquidAI), multi-file: Q4_K_M weights plus the
+    // matching Q8_0 mmproj vision projector. Both files must land in the same
+    // folder so llama.cpp finds the projector next to the weights; the shared
+    // commons classifier (inferModelFileRole) tags primary-model vs mmproj
+    // roles. Much heavier than SmolVLM, so it is registered alongside it
+    // instead of replacing the Vision view's default.
+    try {
+      const files = [
+        (
+          url:
+              'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/LFM2.5-VL-3B-Q4_K_M.gguf',
+          filename: 'LFM2.5-VL-3B-Q4_K_M.gguf',
+        ),
+        (
+          url:
+              'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+          filename: 'mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+        ),
+      ];
+      final descriptors = files
+          .map(
+            (file) => ModelFileDescriptor(
+              filename: file.filename,
+              url: file.url,
+              isRequired: true,
+              role: RunAnywhere.models.inferModelFileRole(
+                filename: file.filename,
+                modality: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+              ),
+            ),
+          )
+          .toList();
+      await RunAnywhere.models.registerMultiFile(
+        id: vlmLfm25ModelId,
+        name: 'LFM2.5-VL 3B',
+        files: descriptors,
+        framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+        modality: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+        // Sum of the two file sizes on HuggingFace: Q4_K_M weights
+        // (1,674,454,240 B) + Q8_0 mmproj (583,109,120 B).
+        memoryRequirement: 2257563360,
+      );
+    } catch (e) {
+      debugPrint('Failed to register LFM2.5-VL model: $e');
     }
 
     // STT Model - Whisper Tiny English (fast transcription)
@@ -257,11 +306,15 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Download and load VLM model
-  Future<void> downloadAndLoadVLM() async {
+  /// Download and load a VLM model.
+  ///
+  /// Defaults to the Vision view's model ([vlmModelId]); pass
+  /// [vlmLfm25ModelId] to drive the larger LFM2.5-VL 3B row through the same
+  /// vision slot.
+  Future<void> downloadAndLoadVLM({String modelId = vlmModelId}) async {
     if (_isVLMDownloading || _isVLMLoading) return;
 
-    final isDownloaded = await isModelDownloaded(vlmModelId);
+    final isDownloaded = await isModelDownloaded(modelId);
 
     if (!isDownloaded) {
       _isVLMDownloading = true;
@@ -270,7 +323,7 @@ class ModelService extends ChangeNotifier {
 
       try {
         await RunAnywhere.downloadModel(
-          vlmModelId,
+          modelId,
           onProgress: (progress) async {
             _vlmDownloadProgress = progress.stageProgress;
             notifyListeners();
@@ -289,7 +342,7 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.vlm.load(vlmModelId);
+      await RunAnywhere.vlm.load(modelId);
     } catch (e) {
       debugPrint('VLM load error: $e');
     }
