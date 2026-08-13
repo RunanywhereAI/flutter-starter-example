@@ -13,11 +13,11 @@ dependencies:
     sdk: flutter
 
   # RunAnywhere SDK packages (remote from pub.dev)
-  runanywhere: ^0.20.10
-  runanywhere_llamacpp: ^0.20.10
-  runanywhere_onnx: ^0.20.10
-  runanywhere_mlx: ^0.20.10
-  runanywhere_qhexrt: ^0.20.9
+  runanywhere: ^0.20.17
+  runanywhere_llamacpp: ^0.20.17
+  runanywhere_onnx: ^0.20.17
+  runanywhere_mlx: ^0.20.17
+  runanywhere_qhexrt: ^0.20.17
 
   # UI and Icons
   cupertino_icons: ^1.0.6

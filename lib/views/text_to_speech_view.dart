@@ -37,7 +37,7 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
     super.initState();
     // The SDK owns synthesis + playback for speak(); just mirror its
     // playing-state stream into local UI state.
-    _playbackSubscription = RunAnywhere.tts.playbackStateStream.listen((
+    _playbackSubscription = RunAnywhere.tts.playbackState.listen((
       isPlaying,
     ) {
       if (mounted) {
@@ -455,11 +455,16 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
     try {
       // The SDK synthesizes AND plays the audio through the device
       // speakers — no manual WAV encoding or audio-player wiring needed.
-      await RunAnywhere.tts.speak(
+      // `speak` returns immediately with a handle to the in-flight utterance;
+      // failures surface on `handle.error` once it settles.
+      final handle = RunAnywhere.tts.speak(
         text,
-        TTSOptions(speakingRate: _speechRate),
+        options: TtsOptions(speed: _speechRate),
       );
       _lastSynthesizedText = text;
+      await handle.waitForPlayout();
+      final failure = handle.error;
+      if (failure != null) throw failure;
 
       if (mounted) {
         setState(() {
@@ -482,7 +487,13 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
     final text = _lastSynthesizedText;
     if (text == null) return;
     try {
-      await RunAnywhere.tts.speak(text, TTSOptions(speakingRate: _speechRate));
+      final handle = RunAnywhere.tts.speak(
+        text,
+        options: TtsOptions(speed: _speechRate),
+      );
+      await handle.waitForPlayout();
+      final failure = handle.error;
+      if (failure != null) throw failure;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -493,6 +504,6 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
   }
 
   Future<void> _stopPlayback() async {
-    await RunAnywhere.tts.stopSpeaking();
+    await RunAnywhere.tts.stop();
   }
 }

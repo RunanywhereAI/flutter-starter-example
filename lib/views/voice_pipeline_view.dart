@@ -19,15 +19,14 @@ class VoicePipelineView extends StatefulWidget {
 
 class _VoicePipelineViewState extends State<VoicePipelineView> {
   // The SDK owns the STT -> LLM -> TTS session end-to-end (mic capture,
-  // turn segmentation, and TTS playback all live behind this one event
-  // stream) — this view only drives UI state off the proto VoiceEvent
-  // oneof. Mirrors the reference app's `VoiceAgentViewModel`
-  // (examples/flutter/RunAnywhereAI/lib/features/voice/voice_agent_view_model.dart).
+  // turn segmentation, and TTS playback all live behind this one session
+  // object) — this view only drives UI state off the session's event stream.
+  VoiceSession? _session;
   StreamSubscription<VoiceEvent>? _eventSubscription;
 
   bool _isSessionActive = false;
   String _status = 'Ready';
-  double _audioLevel = 0.0;
+  bool _isUserSpeaking = false;
   String _lastTranscript = '';
   String _lastResponse = '';
   final List<ConversationTurn> _conversationHistory = [];
@@ -37,9 +36,7 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
   @override
   void dispose() {
     unawaited(_eventSubscription?.cancel());
-    if (_isSessionActive) {
-      RunAnywhere.voice.cleanup();
-    }
+    unawaited(_session?.close());
     super.dispose();
   }
 
@@ -403,8 +400,10 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
               ]
             : null,
       ),
+      // The session's event stream reports speech activity, not amplitude, so
+      // the visualizer is driven by the VAD verdict rather than a mic level.
       child: _currentState == VoicePipelineState.listening
-          ? AudioVisualizer(level: _audioLevel)
+          ? AudioVisualizer(level: _isUserSpeaking ? 1.0 : 0.0)
           : Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -661,19 +660,18 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
     });
 
     try {
-      if (!RunAnywhere.voice.isReady) {
-        throw StateError(
-          'STT, LLM, and TTS models must all be loaded before starting a '
-          'voice session',
-        );
-      }
+      // The SDK composes the STT/LLM/TTS models into one voice-agent session,
+      // fetching and loading whatever is missing. The mic driver behind the
+      // session owns audio capture, turn segmentation, and TTS playback
+      // end-to-end.
+      final session = await RunAnywhere.voice.createSession(
+        stt: const ModelRef(ModelService.sttModelId),
+        llm: const ModelRef(ModelService.llmModelId),
+        tts: const ModelRef(ModelService.ttsModelId),
+      );
+      _session = session;
 
-      // The SDK composes the loaded STT/LLM/TTS models into one voice-agent
-      // session; the mic driver behind eventStream() owns audio capture,
-      // turn segmentation, and TTS playback end-to-end.
-      await RunAnywhere.voice.initializeWithLoadedModels();
-
-      _eventSubscription = RunAnywhere.voice.eventStream().listen(
+      _eventSubscription = session.events.listen(
         _handleVoiceEvent,
         onError: (Object error) {
           if (!mounted) return;
@@ -683,6 +681,9 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
           });
         },
       );
+
+      // Opens the microphone and begins the turn loop.
+      await session.start();
 
       setState(() {
         _status = 'Listening';
@@ -697,110 +698,69 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
     }
   }
 
-  /// Drive UI state from the canonical proto `VoiceEvent` oneof. Mirrors the
-  /// reference app's `VoiceAgentViewModel._handleProtoEvent`, adapted to this
-  /// view's paired transcript+response "current turn" presentation instead
-  /// of per-message chat bubbles.
+  /// Drive UI state from the session's typed event stream, adapted to this
+  /// view's paired transcript+response "current turn" presentation instead of
+  /// per-message chat bubbles.
   void _handleVoiceEvent(VoiceEvent event) {
     if (!mounted) return;
 
-    switch (event.whichPayload()) {
-      case VoiceEvent_Payload.state:
-        _handlePipelineState(event.state.current);
-        break;
+    switch (event) {
+      case VoiceAgentStateChanged(:final state):
+        _handleAgentState(state);
 
-      case VoiceEvent_Payload.vad:
-        final vad = event.vad;
-        if (vad.type ==
-            VADStreamEventKind.VAD_STREAM_EVENT_KIND_SPEECH_ACTIVITY) {
-          setState(() {
-            if (vad.isSpeech) {
-              _status = 'Speech detected...';
-              _currentState = VoicePipelineState.listening;
-            } else {
-              _status = 'Processing';
-              _currentState = VoicePipelineState.processing;
-            }
-          });
-        }
-        break;
-
-      case VoiceEvent_Payload.audioLevel:
+      case VoiceSpeechStarted():
         setState(() {
-          _audioLevel = event.audioLevel.rms.clamp(0.0, 1.0);
+          _isUserSpeaking = true;
+          _status = 'Speech detected...';
+          _currentState = VoicePipelineState.listening;
         });
-        break;
 
-      case VoiceEvent_Payload.userSaid:
-        final text = event.userSaid.text;
+      case VoiceSpeechEnded():
+        setState(() => _isUserSpeaking = false);
+
+      case VoiceUserTranscribed(:final text):
         if (text.isNotEmpty) {
           setState(() {
             _lastTranscript = text;
           });
         }
-        break;
 
-      case VoiceEvent_Payload.assistantToken:
+      case VoiceAgentResponse(:final text):
+        // The session accumulates the reply for us; this is the whole text so
+        // far, not a delta.
         setState(() {
-          _lastResponse += event.assistantToken.text;
+          _lastResponse = text;
         });
-        break;
 
-      case VoiceEvent_Payload.audio:
+      case VoiceError(:final message):
         setState(() {
-          _status = 'Speaking';
-          _currentState = VoicePipelineState.speaking;
-        });
-        break;
-
-      case VoiceEvent_Payload.agentResponseCompleted:
-        // Canonical end-of-reply signal — commit the completed turn.
-        _commitTurn();
-        break;
-
-      case VoiceEvent_Payload.error:
-        setState(() {
-          _status = 'Error: ${event.error.message}';
+          _status = 'Error: $message';
           _currentState = VoicePipelineState.error;
         });
-        break;
-
-      default:
-        break;
     }
   }
 
-  void _handlePipelineState(PipelineState state) {
+  void _handleAgentState(AgentState state) {
     switch (state) {
-      case PipelineState.PIPELINE_STATE_IDLE:
-      case PipelineState.PIPELINE_STATE_LISTENING:
+      case AgentState.listening:
+        // Back to listening means the previous turn is done — flush it.
+        _commitTurn();
         setState(() {
           _status = 'Listening';
           _currentState = VoicePipelineState.listening;
         });
-        break;
-      case PipelineState.PIPELINE_STATE_THINKING:
+      case AgentState.thinking:
         setState(() {
           _status = 'Processing';
           _currentState = VoicePipelineState.processing;
-          _audioLevel = 0.0;
+          _isUserSpeaking = false;
         });
-        break;
-      case PipelineState.PIPELINE_STATE_SPEAKING:
+      case AgentState.speaking:
         setState(() {
           _status = 'Speaking';
           _currentState = VoicePipelineState.speaking;
+          _isUserSpeaking = false;
         });
-        // Flush the accumulated transcript+response as a completed turn.
-        // Idempotent with the agentResponseCompleted commit below — whichever
-        // fires first commits and clears the buffers.
-        _commitTurn();
-        break;
-      case PipelineState.PIPELINE_STATE_STOPPED:
-        unawaited(_stopSession());
-        break;
-      default:
-        break;
     }
   }
 
@@ -819,21 +779,20 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
       }
       _lastTranscript = '';
       _lastResponse = '';
-      _status = 'Listening';
-      _currentState = VoicePipelineState.listening;
     });
   }
 
   Future<void> _stopSession() async {
     await _eventSubscription?.cancel();
     _eventSubscription = null;
-    RunAnywhere.voice.cleanup();
+    await _session?.close();
+    _session = null;
     if (!mounted) return;
     setState(() {
       _isSessionActive = false;
       _status = 'Ready';
       _currentState = VoicePipelineState.idle;
-      _audioLevel = 0.0;
+      _isUserSpeaking = false;
     });
   }
 
