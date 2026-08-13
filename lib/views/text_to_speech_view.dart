@@ -462,15 +462,18 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
         options: TtsOptions(speed: _speechRate),
       );
       _lastSynthesizedText = text;
-      await handle.waitForPlayout();
-      final failure = handle.error;
-      if (failure != null) throw failure;
-
+      // Synthesis is done the moment speak() hands back the handle; what
+      // follows is playout. Clear the flag here so the playback controls
+      // (which render only when !_isSynthesizing) come back and the user can
+      // actually stop the utterance, matching _replayAudio's behaviour.
       if (mounted) {
         setState(() {
           _isSynthesizing = false;
         });
       }
+      await handle.waitForPlayout();
+      final failure = handle.error;
+      if (failure != null) throw failure;
     } catch (e) {
       if (mounted) {
         setState(() {

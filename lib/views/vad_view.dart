@@ -280,14 +280,16 @@ class _VADViewState extends State<VADView> {
             _frameCount += 1;
             if (isSpeech) _speechFrames += 1;
           });
+        // Both terminal events end the session for good. Route them through
+        // _stopListening() so the chunk/event/level subscriptions are
+        // cancelled and the VadStream is released. Otherwise pressing Start
+        // again would overwrite the handle fields and leak the previous
+        // stream (and the microphone) behind them.
         case VadFailed(:final error):
-          setState(() {
-            _error = 'VAD failed: ${error.message}';
-            _isListening = false;
-          });
-          unawaited(_capture.cancel());
+          setState(() => _error = 'VAD failed: ${error.message}');
+          unawaited(_stopListening());
         case VadCompleted():
-          setState(() => _isListening = false);
+          unawaited(_stopListening());
         default:
           break;
       }

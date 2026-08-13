@@ -1,8 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:runanywhere/runanywhere.dart';
 
 /// Service for managing AI models
 class ModelService extends ChangeNotifier {
+  /// Hydrate the resident-model mirror from the SDK straight away, so the
+  /// widget tree reflects anything the native engine already has loaded
+  /// (e.g. after a Dart hot restart) instead of reporting "not loaded" until
+  /// the first app-driven load or unload.
+  ModelService() {
+    unawaited(refreshLoadedModels());
+  }
+
   // Model IDs - curated one-per-modality set mirroring the monorepo reference
   // example (examples/flutter/RunAnywhereAI ModelCatalogBootstrap). Each id /
   // url / framework / category matches what the reference registers. Vision
@@ -313,7 +323,13 @@ class ModelService extends ChangeNotifier {
           throw error;
         case DownloadCancelled():
           return;
-        default:
+        // Lifecycle markers with nothing to render: the progress readout is
+        // driven solely by DownloadProgressEvent. Spelled out rather than
+        // folded into a `default` so the analyzer flags a new DownloadEvent
+        // variant here instead of silently swallowing it.
+        case DownloadStarted():
+        case DownloadVerifying():
+        case DownloadExtracting():
           break;
       }
     }

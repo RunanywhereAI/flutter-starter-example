@@ -270,6 +270,19 @@ class _ChatViewState extends State<ChatView> {
 
     _scrollToBottom();
 
+    // The SDK emits the v4 event grammar: answer-text deltas while decoding,
+    // then exactly one terminal event carrying the aggregate result and its
+    // metrics. Rendering those deltas is all this view does.
+    //
+    // These live outside the try so a failure (the SDK's own GenerationFailed,
+    // or an unexpected throw mid-stream) can still render the text that was
+    // already streamed to the screen instead of dropping it.
+    final buffer = StringBuffer();
+    var finalText = '';
+    double? tokensPerSecond;
+    int? totalTokens;
+    SDKException? failure;
+
     try {
       final events = RunAnywhere.llm.generateStream(
         text,
@@ -278,15 +291,6 @@ class _ChatViewState extends State<ChatView> {
           temperature: 0.8,
         ),
       );
-
-      // The SDK emits the v4 event grammar: answer-text deltas while decoding,
-      // then exactly one terminal event carrying the aggregate result and its
-      // metrics. Rendering those deltas is all this view does.
-      final buffer = StringBuffer();
-      var finalText = '';
-      double? tokensPerSecond;
-      int? totalTokens;
-      SDKException? failure;
 
       await for (final event in events) {
         switch (event) {
@@ -331,7 +335,19 @@ class _ChatViewState extends State<ChatView> {
       }
     } catch (e) {
       if (mounted) {
+        // Keep whatever the model already produced. A late stream failure
+        // would otherwise throw away text the user has been watching arrive.
+        final partial = finalText.isNotEmpty ? finalText : buffer.toString();
         setState(() {
+          if (partial.isNotEmpty) {
+            _messages.add(ChatMessage(
+              text: partial,
+              isUser: false,
+              timestamp: DateTime.now(),
+              tokensPerSecond: tokensPerSecond,
+              totalTokens: totalTokens,
+            ));
+          }
           _messages.add(ChatMessage(
             text: 'Error: $e',
             isUser: false,

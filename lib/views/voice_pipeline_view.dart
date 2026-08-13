@@ -690,6 +690,12 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
         _currentState = VoicePipelineState.listening;
       });
     } catch (e) {
+      // createSession() may have already handed back a session (and
+      // session.start() may have already opened the microphone) before the
+      // throw. Release both before surfacing the error, or the next Start
+      // reassigns _session / _eventSubscription over a live handle.
+      await _stopSession();
+      if (!mounted) return;
       setState(() {
         _status = 'Error: $e';
         _currentState = VoicePipelineState.error;
@@ -782,10 +788,21 @@ class _VoicePipelineViewState extends State<VoicePipelineView> {
     });
   }
 
+  /// Release the session and its subscription. Never throws: this runs from
+  /// dispose, from Stop, and from the _startSession failure path, where a
+  /// second exception would mask the original one and strand the handles.
   Future<void> _stopSession() async {
-    await _eventSubscription?.cancel();
+    try {
+      await _eventSubscription?.cancel();
+    } catch (e) {
+      debugPrint('Voice event subscription cancel failed: $e');
+    }
     _eventSubscription = null;
-    await _session?.close();
+    try {
+      await _session?.close();
+    } catch (e) {
+      debugPrint('Voice session close failed: $e');
+    }
     _session = null;
     if (!mounted) return;
     setState(() {
