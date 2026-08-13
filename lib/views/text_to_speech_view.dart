@@ -43,6 +43,13 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
       if (mounted) {
         setState(() {
           _isPlaying = isPlaying;
+          // speak() hands back its handle before synthesis even starts, so
+          // playout beginning is the first point at which synthesis is
+          // provably over. Clearing here keeps the spinner up for the whole
+          // synthesis and still releases the Stop control (which renders only
+          // when !_isSynthesizing) for the playout the user might want to
+          // interrupt.
+          if (isPlaying) _isSynthesizing = false;
         });
       }
     });
@@ -462,18 +469,18 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
         options: TtsOptions(speed: _speechRate),
       );
       _lastSynthesizedText = text;
-      // Synthesis is done the moment speak() hands back the handle; what
-      // follows is playout. Clear the flag here so the playback controls
-      // (which render only when !_isSynthesizing) come back and the user can
-      // actually stop the utterance, matching _replayAudio's behaviour.
+      await handle.waitForPlayout();
+      final failure = handle.error;
+      if (failure != null) throw failure;
+
+      // Safety net only. In the normal flow the playbackState listener has
+      // already cleared this the moment playout began; this covers the case
+      // where playback never started at all.
       if (mounted) {
         setState(() {
           _isSynthesizing = false;
         });
       }
-      await handle.waitForPlayout();
-      final failure = handle.error;
-      if (failure != null) throw failure;
     } catch (e) {
       if (mounted) {
         setState(() {
