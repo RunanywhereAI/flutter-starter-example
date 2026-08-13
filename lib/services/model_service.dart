@@ -1,13 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:runanywhere/runanywhere.dart';
 
 /// Service for managing AI models
 class ModelService extends ChangeNotifier {
+  /// Hydrate the resident-model mirror from the SDK straight away, so the
+  /// widget tree reflects anything the native engine already has loaded
+  /// (e.g. after a Dart hot restart) instead of reporting "not loaded" until
+  /// the first app-driven load or unload.
+  ModelService() {
+    unawaited(refreshLoadedModels());
+  }
+
   // Model IDs - curated one-per-modality set mirroring the monorepo reference
   // example (examples/flutter/RunAnywhereAI ModelCatalogBootstrap). Each id /
-  // url / framework / category matches what the reference registers.
+  // url / framework / category matches what the reference registers. Vision
+  // carries a second, larger row (families ordered small -> large, as in the
+  // reference) so the Vision view can be pointed at a higher-quality VLM.
   static const String llmModelId = 'smollm2-360m-instruct-q8_0';
   static const String vlmModelId = 'smolvlm-500m-instruct-q8_0';
+  static const String vlmLfm25ModelId = 'lfm2.5-vl-3b-q4_k_m';
   static const String sttModelId = 'sherpa-onnx-whisper-tiny.en';
   static const String ttsModelId = 'vits-piper-en_US-lessac-medium';
   static const String vadModelId = 'silero-vad';
@@ -35,6 +48,12 @@ class ModelService extends ChangeNotifier {
   bool _isTTSLoading = false;
   bool _isVADLoading = false;
 
+  // Resident-model state. `RunAnywhere.models.state()` is the SDK's async
+  // source of truth; widget `build()` needs a synchronous answer, so the
+  // categories it reports are mirrored here and refreshed after every
+  // load/unload.
+  final Set<ModelCategory> _loadedCategories = <ModelCategory>{};
+
   // Getters
   bool get isLLMDownloading => _isLLMDownloading;
   bool get isVLMDownloading => _isVLMDownloading;
@@ -56,13 +75,33 @@ class ModelService extends ChangeNotifier {
   bool get isTTSLoading => _isTTSLoading;
   bool get isVADLoading => _isVADLoading;
 
-  bool get isLLMLoaded => RunAnywhere.llm.isLoaded;
-  bool get isVLMLoaded => RunAnywhere.vlm.isLoaded;
-  bool get isSTTLoaded => RunAnywhere.stt.isLoaded;
-  bool get isTTSLoaded => RunAnywhere.tts.isLoaded;
-  bool get isVADLoaded => RunAnywhere.vad.isModelLoaded;
+  bool get isLLMLoaded =>
+      _loadedCategories.contains(ModelCategory.MODEL_CATEGORY_LANGUAGE);
+  bool get isVLMLoaded =>
+      _loadedCategories.contains(ModelCategory.MODEL_CATEGORY_MULTIMODAL);
+  bool get isSTTLoaded => _loadedCategories
+      .contains(ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION);
+  bool get isTTSLoaded =>
+      _loadedCategories.contains(ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS);
+  bool get isVADLoaded => _loadedCategories
+      .contains(ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION);
 
-  bool get isVoiceAgentReady => RunAnywhere.voice.isReady;
+  /// A voice session needs STT + LLM + TTS resident before it can be composed.
+  bool get isVoiceAgentReady => isSTTLoaded && isLLMLoaded && isTTSLoaded;
+
+  /// Pull the resident-model set from the SDK into the synchronous mirror the
+  /// widget tree reads.
+  Future<void> refreshLoadedModels() async {
+    try {
+      final state = await RunAnywhere.models.state();
+      _loadedCategories
+        ..clear()
+        ..addAll(state.loaded.keys);
+    } catch (e) {
+      debugPrint('Failed to read model state: $e');
+    }
+    notifyListeners();
+  }
 
   /// Register default models with the SDK — one small, curated model per
   /// exposed modality. Ids / urls / framework / category are copied verbatim
@@ -72,13 +111,15 @@ class ModelService extends ChangeNotifier {
     // LLM Model - SmolLM2 360M Instruct (small, fast, good for demos)
     try {
       await RunAnywhere.models.register(
-        id: llmModelId,
-        name: 'SmolLM2 360M Instruct Q8_0',
-        url:
-            'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf',
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-        modality: ModelCategory.MODEL_CATEGORY_LANGUAGE,
-        memoryRequirement: 400000000, // ~400MB
+        ModelRegistration.url(
+          id: llmModelId,
+          name: 'SmolLM2 360M Instruct Q8_0',
+          url:
+              'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf',
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+          category: ModelCategory.MODEL_CATEGORY_LANGUAGE,
+          memoryRequirementBytes: 400000000, // ~400MB
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register LLM model: $e');
@@ -87,34 +128,84 @@ class ModelService extends ChangeNotifier {
     // VLM Model - SmolVLM 500M Instruct (vision-language, archive bundle).
     // tar.gz with a directory-based layout (weights + mmproj projector).
     try {
-      await RunAnywhere.models.registerArchiveModel(
-        id: vlmModelId,
-        name: 'SmolVLM 500M Instruct',
-        archiveUrl:
-            'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-vlm-models-v1/smolvlm-500m-instruct-q8_0.tar.gz',
-        archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
-        structure: ArchiveStructure.ARCHIVE_STRUCTURE_DIRECTORY_BASED,
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
-        modality: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
-        memoryRequirement: 600000000,
+      await RunAnywhere.models.register(
+        ModelRegistration.archive(
+          id: vlmModelId,
+          name: 'SmolVLM 500M Instruct',
+          url:
+              'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-vlm-models-v1/smolvlm-500m-instruct-q8_0.tar.gz',
+          archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
+          structure: ArchiveStructure.ARCHIVE_STRUCTURE_DIRECTORY_BASED,
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+          memoryRequirementBytes: 600000000,
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register VLM model: $e');
     }
 
+    // VLM Model - LFM2.5-VL 3B (LiquidAI), multi-file: Q4_K_M weights plus the
+    // matching Q8_0 mmproj vision projector. BOTH files are required: without
+    // the mmproj the model still loads, as text-only, and silently ignores
+    // every image. Both land in the same folder so llama.cpp finds the
+    // projector next to the weights. Per-file roles are left unset:
+    // `models.register` fills them in through the commons classifier, which is
+    // what tags `mmproj-*` as the vision projector. Much heavier than SmolVLM,
+    // so it is registered alongside it instead of replacing the Vision view's
+    // default.
+    try {
+      const files = [
+        (
+          url:
+              'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/LFM2.5-VL-3B-Q4_K_M.gguf',
+          filename: 'LFM2.5-VL-3B-Q4_K_M.gguf',
+        ),
+        (
+          url:
+              'https://huggingface.co/LiquidAI/LFM2.5-VL-3B-GGUF/resolve/main/mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+          filename: 'mmproj-LFM2.5-VL-3B-Q8_0.gguf',
+        ),
+      ];
+      final descriptors = files
+          .map(
+            (file) => ModelFileDescriptor(
+              filename: file.filename,
+              url: file.url,
+            ),
+          )
+          .toList();
+      await RunAnywhere.models.register(
+        ModelRegistration.multiFile(
+          id: vlmLfm25ModelId,
+          name: 'LFM2.5-VL 3B',
+          files: descriptors,
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
+          category: ModelCategory.MODEL_CATEGORY_MULTIMODAL,
+          // Sum of the two file sizes on HuggingFace: Q4_K_M weights
+          // (1,674,454,240 B) + Q8_0 mmproj (583,109,120 B).
+          memoryRequirementBytes: 2257563360,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to register LFM2.5-VL model: $e');
+    }
+
     // STT Model - Whisper Tiny English (fast transcription)
     // Using tar.gz format from RunanywhereAI for fast native extraction
     try {
-      await RunAnywhere.models.registerArchiveModel(
-        id: sttModelId,
-        name: 'Sherpa Whisper Tiny (ONNX)',
-        archiveUrl:
-            'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
-        archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
-        structure: ArchiveStructure.ARCHIVE_STRUCTURE_NESTED_DIRECTORY,
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
-        modality: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
-        memoryRequirement: 75000000,
+      await RunAnywhere.models.register(
+        ModelRegistration.archive(
+          id: sttModelId,
+          name: 'Sherpa Whisper Tiny (ONNX)',
+          url:
+              'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/sherpa-onnx-whisper-tiny.en.tar.gz',
+          archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
+          structure: ArchiveStructure.ARCHIVE_STRUCTURE_NESTED_DIRECTORY,
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
+          category: ModelCategory.MODEL_CATEGORY_SPEECH_RECOGNITION,
+          memoryRequirementBytes: 75000000,
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register STT model: $e');
@@ -123,16 +214,18 @@ class ModelService extends ChangeNotifier {
     // TTS Model - Piper TTS (US English - Medium quality)
     // Using officially supported Piper model for reliable TTS
     try {
-      await RunAnywhere.models.registerArchiveModel(
-        id: ttsModelId,
-        name: 'Piper TTS (US English - Medium)',
-        archiveUrl:
-            'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
-        archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
-        structure: ArchiveStructure.ARCHIVE_STRUCTURE_NESTED_DIRECTORY,
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
-        modality: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
-        memoryRequirement: 65000000,
+      await RunAnywhere.models.register(
+        ModelRegistration.archive(
+          id: ttsModelId,
+          name: 'Piper TTS (US English - Medium)',
+          url:
+              'https://github.com/RunanywhereAI/sherpa-onnx/releases/download/runanywhere-models-v1/vits-piper-en_US-lessac-medium.tar.gz',
+          archiveType: ArchiveType.ARCHIVE_TYPE_TAR_GZ,
+          structure: ArchiveStructure.ARCHIVE_STRUCTURE_NESTED_DIRECTORY,
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_SHERPA,
+          category: ModelCategory.MODEL_CATEGORY_SPEECH_SYNTHESIS,
+          memoryRequirementBytes: 65000000,
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register TTS model: $e');
@@ -141,13 +234,15 @@ class ModelService extends ChangeNotifier {
     // VAD Model - Silero VAD (single-file ONNX)
     try {
       await RunAnywhere.models.register(
-        id: vadModelId,
-        name: 'Silero VAD',
-        url:
-            'https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx',
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
-        modality: ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION,
-        memoryRequirement: 2327524,
+        ModelRegistration.url(
+          id: vadModelId,
+          name: 'Silero VAD',
+          url:
+              'https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx',
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
+          category: ModelCategory.MODEL_CATEGORY_VOICE_ACTIVITY_DETECTION,
+          memoryRequirementBytes: 2327524,
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register VAD model: $e');
@@ -155,8 +250,9 @@ class ModelService extends ChangeNotifier {
 
     // Embedding Model - All MiniLM L6 v2 (multi-file: model.onnx + vocab.txt).
     // Powers the RAG pipeline. Both files must land in the same folder so the
-    // C++ RAG pipeline finds the vocab next to the model. The shared commons
-    // classifier (inferModelFileRole) tags primary-model vs vocab roles.
+    // C++ RAG pipeline finds the vocab next to the model. Per-file roles are
+    // left unset: `models.register` fills them in through the commons
+    // classifier, so the app never restates the SDK's filename conventions.
     try {
       const files = [
         (
@@ -175,21 +271,18 @@ class ModelService extends ChangeNotifier {
             (file) => ModelFileDescriptor(
               filename: file.filename,
               url: file.url,
-              isRequired: true,
-              role: RunAnywhere.models.inferModelFileRole(
-                filename: file.filename,
-                modality: ModelCategory.MODEL_CATEGORY_EMBEDDING,
-              ),
             ),
           )
           .toList();
-      await RunAnywhere.models.registerMultiFile(
-        id: embeddingModelId,
-        name: 'All MiniLM L6 v2 (Embedding)',
-        files: descriptors,
-        framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
-        modality: ModelCategory.MODEL_CATEGORY_EMBEDDING,
-        memoryRequirement: 25500000,
+      await RunAnywhere.models.register(
+        ModelRegistration.multiFile(
+          id: embeddingModelId,
+          name: 'All MiniLM L6 v2 (Embedding)',
+          files: descriptors,
+          framework: InferenceFramework.INFERENCE_FRAMEWORK_ONNX,
+          category: ModelCategory.MODEL_CATEGORY_EMBEDDING,
+          memoryRequirementBytes: 25500000,
+        ),
       );
     } catch (e) {
       debugPrint('Failed to register embedding model: $e');
@@ -197,23 +290,49 @@ class ModelService extends ChangeNotifier {
   }
 
   /// Look up the fully-populated proto [ModelInfo] for a registered id.
-  Future<ModelInfo?> modelInfo(String modelId) async {
-    final models = await RunAnywhere.models.available();
-    for (final model in models) {
-      if (model.id == modelId) return model;
-    }
-    return null;
-  }
+  Future<ModelInfo?> modelInfo(String modelId) => RunAnywhere.models.get(modelId);
 
   /// Check if a model is downloaded
   Future<bool> isModelDownloaded(String modelId) async {
-    final models = await RunAnywhere.models.available();
-    for (final model in models) {
-      if (model.id == modelId) {
-        return model.localPath.isNotEmpty;
+    final model = await RunAnywhere.models.get(modelId);
+    return model != null && model.localPath.isNotEmpty;
+  }
+
+  /// Drive one `models.download` stream, reporting commons-owned progress.
+  ///
+  /// Throws the SDK's own [SDKException] on a terminal failure so callers see
+  /// the real reason rather than a silently-empty download.
+  Future<void> _download(
+    String modelId,
+    void Function(double progress) onProgress,
+  ) async {
+    await for (final event in RunAnywhere.models.download(modelId)) {
+      switch (event) {
+        case DownloadProgressEvent(
+            :final overallProgress,
+            :final bytesDone,
+            :final bytesTotal,
+          ):
+          onProgress(
+            overallProgress ??
+                (bytesTotal > 0 ? bytesDone / bytesTotal : 0.0),
+          );
+        case DownloadCompleted():
+          onProgress(1.0);
+        case DownloadFailed(:final error):
+          throw error;
+        case DownloadCancelled():
+          return;
+        // Lifecycle markers with nothing to render: the progress readout is
+        // driven solely by DownloadProgressEvent. Spelled out rather than
+        // folded into a `default` so the analyzer flags a new DownloadEvent
+        // variant here instead of silently swallowing it.
+        case DownloadStarted():
+        case DownloadVerifying():
+        case DownloadExtracting():
+          break;
       }
     }
-    return false;
   }
 
   /// Download and load LLM model
@@ -228,13 +347,10 @@ class ModelService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        await RunAnywhere.downloadModel(
-          llmModelId,
-          onProgress: (progress) async {
-            _llmDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(llmModelId, (progress) {
+          _llmDownloadProgress = progress;
+          notifyListeners();
+        });
       } catch (e) {
         debugPrint('LLM download error: $e');
       }
@@ -248,20 +364,24 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.llm.load(llmModelId);
+      await RunAnywhere.models.load(llmModelId);
     } catch (e) {
       debugPrint('LLM load error: $e');
     }
 
     _isLLMLoading = false;
-    notifyListeners();
+    await refreshLoadedModels();
   }
 
-  /// Download and load VLM model
-  Future<void> downloadAndLoadVLM() async {
+  /// Download and load a VLM model.
+  ///
+  /// Defaults to the Vision view's model ([vlmModelId]); pass
+  /// [vlmLfm25ModelId] to drive the larger LFM2.5-VL 3B row through the same
+  /// vision slot.
+  Future<void> downloadAndLoadVLM({String modelId = vlmModelId}) async {
     if (_isVLMDownloading || _isVLMLoading) return;
 
-    final isDownloaded = await isModelDownloaded(vlmModelId);
+    final isDownloaded = await isModelDownloaded(modelId);
 
     if (!isDownloaded) {
       _isVLMDownloading = true;
@@ -269,13 +389,10 @@ class ModelService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        await RunAnywhere.downloadModel(
-          vlmModelId,
-          onProgress: (progress) async {
-            _vlmDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(modelId, (progress) {
+          _vlmDownloadProgress = progress;
+          notifyListeners();
+        });
       } catch (e) {
         debugPrint('VLM download error: $e');
       }
@@ -289,13 +406,13 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.vlm.load(vlmModelId);
+      await RunAnywhere.models.load(modelId);
     } catch (e) {
       debugPrint('VLM load error: $e');
     }
 
     _isVLMLoading = false;
-    notifyListeners();
+    await refreshLoadedModels();
   }
 
   /// Download and load STT model
@@ -310,13 +427,10 @@ class ModelService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        await RunAnywhere.downloadModel(
-          sttModelId,
-          onProgress: (progress) async {
-            _sttDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(sttModelId, (progress) {
+          _sttDownloadProgress = progress;
+          notifyListeners();
+        });
       } catch (e) {
         debugPrint('STT download error: $e');
       }
@@ -330,13 +444,13 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.stt.load(sttModelId);
+      await RunAnywhere.models.load(sttModelId);
     } catch (e) {
       debugPrint('STT load error: $e');
     }
 
     _isSTTLoading = false;
-    notifyListeners();
+    await refreshLoadedModels();
   }
 
   /// Download and load TTS model
@@ -351,13 +465,10 @@ class ModelService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        await RunAnywhere.downloadModel(
-          ttsModelId,
-          onProgress: (progress) async {
-            _ttsDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(ttsModelId, (progress) {
+          _ttsDownloadProgress = progress;
+          notifyListeners();
+        });
       } catch (e) {
         debugPrint('TTS download error: $e');
       }
@@ -371,13 +482,13 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.tts.loadVoice(ttsModelId);
+      await RunAnywhere.models.load(ttsModelId);
     } catch (e) {
       debugPrint('TTS load error: $e');
     }
 
     _isTTSLoading = false;
-    notifyListeners();
+    await refreshLoadedModels();
   }
 
   /// Download and load VAD model
@@ -392,13 +503,10 @@ class ModelService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        await RunAnywhere.downloadModel(
-          vadModelId,
-          onProgress: (progress) async {
-            _vadDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(vadModelId, (progress) {
+          _vadDownloadProgress = progress;
+          notifyListeners();
+        });
       } catch (e) {
         debugPrint('VAD download error: $e');
       }
@@ -412,21 +520,20 @@ class ModelService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await RunAnywhere.vad.loadModel(vadModelId);
+      await RunAnywhere.models.load(vadModelId);
     } catch (e) {
       debugPrint('VAD load error: $e');
     }
 
     _isVADLoading = false;
-    notifyListeners();
+    await refreshLoadedModels();
   }
 
   /// Ensure the RAG prerequisites (embedding + LLM) are downloaded.
   ///
-  /// RAG's C++ pipeline loads both models by id during pipeline creation, so
-  /// they only need to be present on disk here — the RAG view then calls
-  /// `RunAnywhere.rag.ragCreatePipelineForModels(...)` with the resolved
-  /// [ModelInfo]s.
+  /// `RunAnywhere.rag.open` loads both models by id when the session is
+  /// created, so they only need to be present on disk here — the Knowledge
+  /// view then opens the session with a [ModelRef] per model.
   Future<void> downloadRAGDependencies() async {
     if (_isEmbeddingDownloading) return;
 
@@ -436,24 +543,18 @@ class ModelService extends ChangeNotifier {
 
     try {
       if (!await isModelDownloaded(embeddingModelId)) {
-        await RunAnywhere.downloadModel(
-          embeddingModelId,
-          onProgress: (progress) async {
-            _embeddingDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(embeddingModelId, (progress) {
+          _embeddingDownloadProgress = progress;
+          notifyListeners();
+        });
       }
       if (!await isModelDownloaded(llmModelId)) {
         _isLLMDownloading = true;
         notifyListeners();
-        await RunAnywhere.downloadModel(
-          llmModelId,
-          onProgress: (progress) async {
-            _llmDownloadProgress = progress.stageProgress;
-            notifyListeners();
-          },
-        );
+        await _download(llmModelId, (progress) {
+          _llmDownloadProgress = progress;
+          notifyListeners();
+        });
         _isLLMDownloading = false;
       }
     } catch (e) {
@@ -481,11 +582,7 @@ class ModelService extends ChangeNotifier {
 
   /// Unload all models
   Future<void> unloadAllModels() async {
-    await RunAnywhere.llm.unload();
-    await RunAnywhere.vlm.unload();
-    await RunAnywhere.stt.unload();
-    await RunAnywhere.tts.unloadVoice();
-    await RunAnywhere.vad.unloadModel();
-    notifyListeners();
+    await RunAnywhere.models.unloadAll();
+    await refreshLoadedModels();
   }
 }

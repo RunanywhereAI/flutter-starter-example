@@ -14,7 +14,7 @@ import '../widgets/model_loader_widget.dart';
 
 /// Vision (VLM) view — supply an image from the gallery or the device camera,
 /// enter a prompt, and stream a description from the on-device vision-language
-/// model via `RunAnywhere.vlm.processImageStream`.
+/// model via `RunAnywhere.vlm.generateStream`.
 class VisionView extends StatefulWidget {
   const VisionView({super.key});
 
@@ -36,7 +36,7 @@ class _VisionViewState extends State<VisionView> {
   void dispose() {
     _promptController.dispose();
     if (_isProcessing) {
-      RunAnywhere.vlm.cancelVLMGeneration();
+      RunAnywhere.vlm.cancel();
     }
     super.dispose();
   }
@@ -287,18 +287,24 @@ class _VisionViewState extends State<VisionView> {
     });
 
     try {
-      final events = RunAnywhere.vlm.processImageStream(
-        VLMImage(filePath: path),
-        prompt: prompt,
-        options: VLMGenerationOptions(maxTokens: 300),
+      final events = RunAnywhere.vlm.generateStream(
+        ImageInput.file(path),
+        prompt,
+        options: LlmOptions(maxOutputTokens: 300),
       );
 
       final buffer = StringBuffer();
       await for (final event in events) {
-        if (event.token.isEmpty) continue;
-        buffer.write(event.token);
-        if (!mounted) return;
-        setState(() => _description = buffer.toString());
+        switch (event) {
+          case GenerationTextDelta(text: final delta):
+            buffer.write(delta);
+            if (!mounted) return;
+            setState(() => _description = buffer.toString());
+          case GenerationFailed(:final error):
+            throw error;
+          default:
+            break;
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error: $e');
@@ -308,7 +314,7 @@ class _VisionViewState extends State<VisionView> {
   }
 
   void _cancel() {
-    RunAnywhere.vlm.cancelVLMGeneration();
+    RunAnywhere.vlm.cancel();
   }
 
   void _copyDescription() {

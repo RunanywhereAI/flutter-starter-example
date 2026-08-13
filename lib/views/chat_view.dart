@@ -28,7 +28,7 @@ class _ChatViewState extends State<ChatView> {
     _controller.dispose();
     _scrollController.dispose();
     if (_isGenerating) {
-      RunAnywhere.llm.cancelGeneration();
+      RunAnywhere.llm.cancel();
     }
     super.dispose();
   }
@@ -270,37 +270,62 @@ class _ChatViewState extends State<ChatView> {
 
     _scrollToBottom();
 
+    // The SDK emits the v4 event grammar: answer-text deltas while decoding,
+    // then exactly one terminal event carrying the aggregate result and its
+    // metrics. Rendering those deltas is all this view does.
+    //
+    // These live outside the try so a failure (the SDK's own GenerationFailed,
+    // or an unexpected throw mid-stream) can still render the text that was
+    // already streamed to the screen instead of dropping it.
+    final buffer = StringBuffer();
+    var finalText = '';
+    double? tokensPerSecond;
+    int? totalTokens;
+    SDKException? failure;
+
     try {
       final events = RunAnywhere.llm.generateStream(
         text,
-        LLMGenerationOptions(
-          maxTokens: 256,
+        options: LlmOptions(
+          maxOutputTokens: 256,
           temperature: 0.8,
         ),
       );
 
-      // Consumes the token stream and aggregates it into one final result
-      // (text + metrics), while `onToken` drives the live partial-response UI.
-      final result = await RunAnywhere.aggregateStream(
-        prompt: text,
-        events: events,
-        onToken: (aggregated) async {
-          if (!mounted) return;
-          setState(() {
-            _currentResponse = aggregated;
-          });
-          _scrollToBottom();
-        },
-      );
+      await for (final event in events) {
+        switch (event) {
+          case GenerationTextDelta(text: final delta):
+            buffer.write(delta);
+            if (!mounted) return;
+            setState(() {
+              _currentResponse = buffer.toString();
+            });
+            _scrollToBottom();
+          case GenerationCompleted(:final result):
+            finalText = result.text;
+            tokensPerSecond = result.tokensPerSecond;
+            totalTokens = result.inputTokens + result.outputTokens;
+          case GenerationFailed(:final error, :final partial):
+            failure = error;
+            finalText = partial ?? buffer.toString();
+          case GenerationCancelled(:final partial):
+            finalText = partial ?? buffer.toString();
+          default:
+            break;
+        }
+      }
+
+      if (failure != null) throw failure;
+      if (finalText.isEmpty) finalText = buffer.toString();
 
       if (mounted) {
         setState(() {
           _messages.add(ChatMessage(
-            text: result.text,
+            text: finalText,
             isUser: false,
             timestamp: DateTime.now(),
-            tokensPerSecond: result.tokensPerSecond,
-            totalTokens: result.totalTokens,
+            tokensPerSecond: tokensPerSecond,
+            totalTokens: totalTokens,
             wasCancelled: _cancelRequested,
           ));
           _isGenerating = false;
@@ -310,7 +335,19 @@ class _ChatViewState extends State<ChatView> {
       }
     } catch (e) {
       if (mounted) {
+        // Keep whatever the model already produced. A late stream failure
+        // would otherwise throw away text the user has been watching arrive.
+        final partial = finalText.isNotEmpty ? finalText : buffer.toString();
         setState(() {
+          if (partial.isNotEmpty) {
+            _messages.add(ChatMessage(
+              text: partial,
+              isUser: false,
+              timestamp: DateTime.now(),
+              tokensPerSecond: tokensPerSecond,
+              totalTokens: totalTokens,
+            ));
+          }
           _messages.add(ChatMessage(
             text: 'Error: $e',
             isUser: false,
@@ -330,7 +367,7 @@ class _ChatViewState extends State<ChatView> {
     // the (now-cancelled) stream actually terminates — this just requests
     // cancellation and flags it, avoiding a duplicate bubble race.
     _cancelRequested = true;
-    RunAnywhere.llm.cancelGeneration();
+    RunAnywhere.llm.cancel();
   }
 
   void _clearChat() {
