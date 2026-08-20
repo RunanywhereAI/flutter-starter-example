@@ -1,19 +1,36 @@
-# RunAnywhere Flutter starter
+# RunAnywhere AI for Flutter
 
-A Flutter app that exercises the on-device AI features of the [RunAnywhere SDK](https://pub.dev/packages/runanywhere). The home screen is a grid of eight cards, one per feature. Each screen downloads and loads its own model on first use, then runs it locally.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/RunanywhereAI/runanywhere-sdks/main/docs/logo.svg" alt="RunAnywhere" width="120"/>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Flutter-3.44%2B-02569B?style=flat-square&logo=flutter&logoColor=white" alt="Flutter 3.44+" />
+  <img src="https://img.shields.io/badge/Dart-3.12%2B-0175C2?style=flat-square&logo=dart&logoColor=white" alt="Dart 3.12+" />
+  <img src="https://img.shields.io/badge/iOS-17.5%2B-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS 17.5+" />
+  <img src="https://img.shields.io/badge/Android-API%2024%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 24+" />
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT" />
+</p>
+
+A starter app for the [RunAnywhere SDK](https://pub.dev/packages/runanywhere), written in
+Dart.
+
+The home screen is a grid of eight cards, one per feature. Each screen downloads and loads
+its own model the first time you open it, then runs it on the device. Copy a screen, point
+it at your own model, and you have the shape of a real app.
 
 ## What each screen does
 
 | Card | SDK surface it calls | Model |
 |---|---|---|
-| Chat (text generation) | `RunAnywhere.llm.generateStream`, `llm.cancel` | SmolLM2 360M |
+| Chat (text generation) | `RunAnywhere.llm.generateStream`, `llm.cancel` | Qwen3.5 0.8B |
 | Vision (image understanding) | `RunAnywhere.vlm.generateStream` with `ImageInput.file` | SmolVLM 500M |
 | Speech (speech to text) | `RunAnywhere.stt.transcribe` with `AudioInput.pcm16` | Whisper Tiny EN |
 | Voice (text to speech) | `RunAnywhere.tts.speak`, `tts.playbackState`, `tts.stop` | Piper en_US lessac medium |
 | Activity (voice detection) | `RunAnywhere.vad.openStream` plus the SDK's `AudioCaptureManager` | Silero VAD |
-| Pipeline (voice agent) | `RunAnywhere.voice.createSession(stt:, llm:, tts:)` | Whisper Tiny + SmolLM2 + Piper |
-| Knowledge (RAG) | `RunAnywhere.rag.open`, `session.ingest`, `session.query` | all-MiniLM-L6-v2 + SmolLM2 |
-| Tools (function calling) | `RunAnywhere.llm.tools.register`, `llm.generate` with `autoExecute: true` | SmolLM2 360M |
+| Pipeline (voice agent) | `RunAnywhere.voice.createSession(stt:, llm:, tts:)` | Whisper Tiny + Qwen3.5 0.8B + Piper |
+| Knowledge (RAG) | `RunAnywhere.rag.open`, `session.ingest`, `session.query` | all-MiniLM-L6-v2 + Qwen3.5 0.8B |
+| Tools (function calling) | `RunAnywhere.llm.tools.register`, `llm.generate` with `autoExecute: true` | Qwen3.5 0.8B |
 
 Some behavior the table does not capture:
 
@@ -66,7 +83,7 @@ await ModelService.registerDefaultModels();
 
 `ModelService` (a `ChangeNotifier` behind `provider`) owns the catalog and the download and load state. It registers models with `RunAnywhere.models.register` using three registration shapes:
 
-- `ModelRegistration.url` for single files (SmolLM2, Silero VAD)
+- `ModelRegistration.url` for single files (Qwen3.5, Silero VAD)
 - `ModelRegistration.archive` for tarballs (SmolVLM, Whisper, Piper)
 - `ModelRegistration.multiFile` for models that need companion files (LFM2.5-VL weights plus its mmproj projector, MiniLM model plus vocab)
 
@@ -114,9 +131,12 @@ Pinned at `^0.20.19`, which is the latest version of all five on pub.dev.
 
 Registered in `ModelService.registerDefaultModels()`. Sizes are the `memoryRequirementBytes` each model declares.
 
+Every loader screen names the model it is about to fetch and who published it, so nothing
+downloads without saying what it is.
+
 | Model | Category | Size |
 |---|---|---|
-| SmolLM2 360M Instruct Q8_0 | Language | 400 MB |
+| Qwen3.5 0.8B Q4_K_M | Language | 533 MB |
 | SmolVLM 500M Instruct | Multimodal | 600 MB |
 | LFM2.5-VL 3B (Q4_K_M + mmproj) | Multimodal | 2.26 GB |
 | Sherpa Whisper Tiny EN | Speech recognition | 75 MB |
@@ -148,6 +168,19 @@ Then point a screen at the new id, either by changing the matching `static const
 ## Privacy
 
 Inference runs on device. Prompts, audio, and images are not sent anywhere. Two things do use the network: model downloads, and the `get_weather` tool on the Tools screen, which calls the public Open-Meteo API with the location string the model extracted from your prompt.
+
+## The other apps
+
+| Platform | Repo |
+| --- | --- |
+| React Native | [react-native-starter-app](https://github.com/RunanywhereAI/react-native-starter-app) |
+| iOS and macOS | [runanywhere-ios](https://github.com/RunanywhereAI/runanywhere-ios) |
+| Android | [runanywhere-android](https://github.com/RunanywhereAI/runanywhere-android) |
+| Web | [runanywhere-web](https://github.com/RunanywhereAI/runanywhere-web) |
+| Windows | [runanywhere-electron](https://github.com/RunanywhereAI/runanywhere-electron) |
+| SDK monorepo | [runanywhere-sdks](https://github.com/RunanywhereAI/runanywhere-sdks) |
+| Documentation | [docs.runanywhere.ai](https://docs.runanywhere.ai) |
+| Discord | [discord.gg/N359FBbDVd](https://discord.gg/N359FBbDVd) |
 
 ## License
 
