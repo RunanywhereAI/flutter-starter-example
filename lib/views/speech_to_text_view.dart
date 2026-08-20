@@ -61,6 +61,7 @@ class _SpeechToTextViewState extends State<SpeechToTextView> {
         builder: (context, modelService, child) {
           if (!modelService.isSTTLoaded) {
             return ModelLoaderWidget(
+              modelCredit: ModelService.sttCredit,
               title: 'STT Model Required',
               subtitle: 'Download and load the speech recognition model',
               icon: Icons.mic_rounded,

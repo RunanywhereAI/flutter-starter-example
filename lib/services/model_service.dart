@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:runanywhere/runanywhere.dart';
 
+import 'model_org.dart';
+
 /// Service for managing AI models
 class ModelService extends ChangeNotifier {
   /// Hydrate the resident-model mirror from the SDK straight away, so the
@@ -18,13 +20,36 @@ class ModelService extends ChangeNotifier {
   // url / framework / category matches what the reference registers. Vision
   // carries a second, larger row (families ordered small -> large, as in the
   // reference) so the Vision view can be pointed at a higher-quality VLM.
-  static const String llmModelId = 'smollm2-360m-instruct-q8_0';
+  static const String llmModelId = 'qwen3.5-0.8b-q4_k_m';
   static const String vlmModelId = 'smolvlm-500m-instruct-q8_0';
   static const String vlmLfm25ModelId = 'lfm2.5-vl-3b-q4_k_m';
   static const String sttModelId = 'sherpa-onnx-whisper-tiny.en';
   static const String ttsModelId = 'vits-piper-en_US-lessac-medium';
   static const String vadModelId = 'silero-vad';
   static const String embeddingModelId = 'all-minilm-l6-v2';
+
+  // Display names, kept beside the ids they belong to so a caller can name the
+  // model without reaching into the registration block below.
+  static const String llmModelName = 'Qwen3.5 0.8B Q4_K_M';
+  static const String vlmModelName = 'SmolVLM 500M Instruct';
+  static const String vlmLfm25ModelName = 'LFM2.5-VL 3B';
+  static const String sttModelName = 'Sherpa Whisper Tiny (ONNX)';
+  static const String ttsModelName = 'Piper TTS (US English - Medium)';
+  static const String vadModelName = 'Silero VAD';
+  static const String embeddingModelName = 'All MiniLM L6 v2 (Embedding)';
+
+  /// "Qwen3.5 0.8B Q4_K_M · Alibaba", for the loader screens. A starter that
+  /// only says "the language model" leaves the reader with no idea what is
+  /// about to be downloaded or who published it.
+  static String get llmCredit => modelCredit(id: llmModelId, name: llmModelName);
+  static String get vlmCredit => modelCredit(id: vlmModelId, name: vlmModelName);
+  static String get vlmLfm25Credit =>
+      modelCredit(id: vlmLfm25ModelId, name: vlmLfm25ModelName);
+  static String get sttCredit => modelCredit(id: sttModelId, name: sttModelName);
+  static String get ttsCredit => modelCredit(id: ttsModelId, name: ttsModelName);
+  static String get vadCredit => modelCredit(id: vadModelId, name: vadModelName);
+  static String get embeddingCredit =>
+      modelCredit(id: embeddingModelId, name: embeddingModelName);
 
   // Download state
   bool _isLLMDownloading = false;
@@ -108,17 +133,17 @@ class ModelService extends ChangeNotifier {
   /// from the monorepo reference example so the two stay in lockstep. Safe to
   /// re-run: commons merges runtime fields on re-registration.
   static Future<void> registerDefaultModels() async {
-    // LLM Model - SmolLM2 360M Instruct (small, fast, good for demos)
+    // LLM Model - Qwen3.5 0.8B, the smallest current-generation chat model.
     try {
       await RunAnywhere.models.register(
         ModelRegistration.url(
           id: llmModelId,
-          name: 'SmolLM2 360M Instruct Q8_0',
+          name: 'Qwen3.5 0.8B Q4_K_M',
           url:
-              'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf',
+              'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf',
           framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
           category: ModelCategory.MODEL_CATEGORY_LANGUAGE,
-          memoryRequirementBytes: 400000000, // ~400MB
+          memoryRequirementBytes: 900000000, // 532,517,120 B of weights plus KV cache
         ),
       );
     } catch (e) {

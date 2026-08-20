@@ -78,6 +78,7 @@ class _KnowledgeViewState extends State<KnowledgeView> {
               final ready = snapshot.data ?? false;
               if (!ready) {
                 return ModelLoaderWidget(
+              modelCredit: ModelService.embeddingCredit,
                   title: 'Knowledge Models Required',
                   subtitle:
                       'Download the embedding + language models to build a '
