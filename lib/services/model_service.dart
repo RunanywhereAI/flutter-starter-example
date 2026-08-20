@@ -18,7 +18,7 @@ class ModelService extends ChangeNotifier {
   // url / framework / category matches what the reference registers. Vision
   // carries a second, larger row (families ordered small -> large, as in the
   // reference) so the Vision view can be pointed at a higher-quality VLM.
-  static const String llmModelId = 'smollm2-360m-instruct-q8_0';
+  static const String llmModelId = 'qwen3.5-0.8b-q4_k_m';
   static const String vlmModelId = 'smolvlm-500m-instruct-q8_0';
   static const String vlmLfm25ModelId = 'lfm2.5-vl-3b-q4_k_m';
   static const String sttModelId = 'sherpa-onnx-whisper-tiny.en';
@@ -108,17 +108,17 @@ class ModelService extends ChangeNotifier {
   /// from the monorepo reference example so the two stay in lockstep. Safe to
   /// re-run: commons merges runtime fields on re-registration.
   static Future<void> registerDefaultModels() async {
-    // LLM Model - SmolLM2 360M Instruct (small, fast, good for demos)
+    // LLM Model - Qwen3.5 0.8B, the smallest current-generation chat model.
     try {
       await RunAnywhere.models.register(
         ModelRegistration.url(
           id: llmModelId,
-          name: 'SmolLM2 360M Instruct Q8_0',
+          name: 'Qwen3.5 0.8B Q4_K_M',
           url:
-              'https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf',
+              'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf',
           framework: InferenceFramework.INFERENCE_FRAMEWORK_LLAMA_CPP,
           category: ModelCategory.MODEL_CATEGORY_LANGUAGE,
-          memoryRequirementBytes: 400000000, // ~400MB
+          memoryRequirementBytes: 900000000, // 532,517,120 B of weights plus KV cache
         ),
       );
     } catch (e) {
