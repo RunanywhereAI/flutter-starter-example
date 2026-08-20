@@ -56,6 +56,7 @@ class _VisionViewState extends State<VisionView> {
         builder: (context, modelService, child) {
           if (!modelService.isVLMLoaded) {
             return ModelLoaderWidget(
+              modelCredit: ModelService.vlmCredit,
               title: 'Vision Model Required',
               subtitle:
                   'Download and load the vision model to describe images',

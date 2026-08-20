@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:runanywhere/runanywhere.dart';
 
+import 'model_org.dart';
+
 /// Service for managing AI models
 class ModelService extends ChangeNotifier {
   /// Hydrate the resident-model mirror from the SDK straight away, so the
@@ -25,6 +27,29 @@ class ModelService extends ChangeNotifier {
   static const String ttsModelId = 'vits-piper-en_US-lessac-medium';
   static const String vadModelId = 'silero-vad';
   static const String embeddingModelId = 'all-minilm-l6-v2';
+
+  // Display names, kept beside the ids they belong to so a caller can name the
+  // model without reaching into the registration block below.
+  static const String llmModelName = 'Qwen3.5 0.8B Q4_K_M';
+  static const String vlmModelName = 'SmolVLM 500M Instruct';
+  static const String vlmLfm25ModelName = 'LFM2.5-VL 3B';
+  static const String sttModelName = 'Sherpa Whisper Tiny (ONNX)';
+  static const String ttsModelName = 'Piper TTS (US English - Medium)';
+  static const String vadModelName = 'Silero VAD';
+  static const String embeddingModelName = 'All MiniLM L6 v2 (Embedding)';
+
+  /// "Qwen3.5 0.8B Q4_K_M · Alibaba", for the loader screens. A starter that
+  /// only says "the language model" leaves the reader with no idea what is
+  /// about to be downloaded or who published it.
+  static String get llmCredit => modelCredit(id: llmModelId, name: llmModelName);
+  static String get vlmCredit => modelCredit(id: vlmModelId, name: vlmModelName);
+  static String get vlmLfm25Credit =>
+      modelCredit(id: vlmLfm25ModelId, name: vlmLfm25ModelName);
+  static String get sttCredit => modelCredit(id: sttModelId, name: sttModelName);
+  static String get ttsCredit => modelCredit(id: ttsModelId, name: ttsModelName);
+  static String get vadCredit => modelCredit(id: vadModelId, name: vadModelName);
+  static String get embeddingCredit =>
+      modelCredit(id: embeddingModelId, name: embeddingModelName);
 
   // Download state
   bool _isLLMDownloading = false;

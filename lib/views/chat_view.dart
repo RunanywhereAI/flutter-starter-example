@@ -56,6 +56,7 @@ class _ChatViewState extends State<ChatView> {
         builder: (context, modelService, child) {
           if (!modelService.isLLMLoaded) {
             return ModelLoaderWidget(
+              modelCredit: ModelService.llmCredit,
               title: 'LLM Model Required',
               subtitle:
                   'Download and load the language model to start chatting',

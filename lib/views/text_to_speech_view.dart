@@ -77,6 +77,7 @@ class _TextToSpeechViewState extends State<TextToSpeechView> {
         builder: (context, modelService, child) {
           if (!modelService.isTTSLoaded) {
             return ModelLoaderWidget(
+              modelCredit: ModelService.ttsCredit,
               title: 'TTS Voice Required',
               subtitle: 'Download and load the voice synthesis model',
               icon: Icons.volume_up_rounded,

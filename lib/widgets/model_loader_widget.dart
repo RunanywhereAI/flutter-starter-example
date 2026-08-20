@@ -6,6 +6,9 @@ import '../theme/app_theme.dart';
 class ModelLoaderWidget extends StatelessWidget {
   final String title;
   final String subtitle;
+  /// "Qwen3.5 0.8B Q4_K_M · Alibaba". Optional so a caller with no single model
+  /// behind it (the voice pipeline loads three) can leave it off.
+  final String? modelCredit;
   final IconData icon;
   final Color accentColor;
   final bool isDownloading;
@@ -17,6 +20,7 @@ class ModelLoaderWidget extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
+    this.modelCredit,
     required this.icon,
     required this.accentColor,
     required this.isDownloading,
@@ -65,6 +69,16 @@ class ModelLoaderWidget extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
+            if (modelCredit != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                modelCredit!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: accentColor,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+            ],
             const SizedBox(height: 32),
             if (isDownloading) ...[
               SizedBox(

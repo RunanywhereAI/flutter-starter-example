@@ -62,6 +62,7 @@ class _VADViewState extends State<VADView> {
         builder: (context, modelService, child) {
           if (!modelService.isVADLoaded) {
             return ModelLoaderWidget(
+              modelCredit: ModelService.vadCredit,
               title: 'VAD Model Required',
               subtitle:
                   'Download and load the voice-activity model to detect speech',
